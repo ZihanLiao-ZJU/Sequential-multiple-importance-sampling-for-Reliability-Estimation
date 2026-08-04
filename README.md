@@ -77,8 +77,6 @@ The main settings used in the paper are:
 - `NumSam = 1000` per iteration;
 - intermediate probability `p0 = 0.1`;
 - Kriging for `n < 20` and PLS for `n >= 20`;
-- 1000 independent runs for Examples 1-12;
-- 100 independent runs for Examples 13-14.
 
 ## Citation
 

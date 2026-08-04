@@ -37,12 +37,6 @@ SeMIS estimates small failure probabilities by combining samples from a sequence
 - Statistics and Machine Learning Toolbox (`fitrgp`, `plsregress`, `makedist`, and `randsample`);
 - Parallel Computing Toolbox for scripts using `parfor`.
 
-The following dependencies are not included:
-
-- `FEM`, required by Example 13;
-- `GauIntPot`, required by the general correlated non-normal branch of `Nataf`;
-- the 225-dimensional structural model used in Example 14.
-
 ## Quick start
 
 ```matlab

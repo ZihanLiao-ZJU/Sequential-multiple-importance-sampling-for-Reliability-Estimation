@@ -17,93 +17,93 @@ classdef aCS
     end
 
     methods
-        function [u,y,Ncal,baystc] = SamGen(obj,u_sed,y_sed,Ns)
-            % Generate MCMC samples targeting prior × likelihood
-            % pCN proposal + adaptive scaling on acceptance rate
+        function [u,y,N_cal,baystc] = SamGen(obj,u_seed,y_seed,Ns)
+            % Generate MCMC samples targeting q_i = pi_i * L_i / z_i  (Eqn. 21)
+            % pCN proposal (Eqn. 22) + adaptive scaling on acceptance rate.
 
             % initialization
             baystc = obj.BayStc;
             sedsav = obj.SedSav;
             Ndim = obj.BayStc.Ndim;
             Nfun = obj.BayStc.Nfun;
-            Nite = obj.NumIte;
-            lambda = obj.Lambda;
-            acpopt = obj.AcpOpt;
+            n_round = obj.NumIte;
+            lambda_pcn = obj.Lambda;
+            acp_opt = obj.AcpOpt;
 
-            % linear map for correlated Gaussian proposal
-            if isfield(baystc.G,'L')
-                L = baystc.G.L;
+            % Cholesky factor of the rPDF covariance (Eqn. 12: sigma^2 I)
+            if isfield(baystc.G,'L_pi')
+                L_pi = baystc.G.L_pi;
             else
-                L = eye(Ndim);
+                L_pi = eye(Ndim);
             end
 
-            Nc = size(u_sed,2);
-            Ncal = 0;
+            Nc = size(u_seed,2);
+            N_cal = 0;
 
             % allocate memory
             u = zeros(Ndim,Nc,Ns);
             y = zeros(Nfun,Nc,Ns);
 
-            % Gaussian innovations and MH uniforms
-            du = pagemtimes(L,randn(Ndim,Nc,Ns));
-            p  = rand(1,Nc,Ns);
+            % Gaussian innovations (Eqn. 22: v ~ N(0,I)) and MH uniforms
+            v = pagemtimes(L_pi,randn(Ndim,Nc,Ns));
+            u_mh = rand(1,Nc,Ns);
 
             % group chains for adaptive updates
-            Ngrp = max(ceil(Nc/Nite),1);
-            Nite = ceil(Nc/Ngrp);
-            ind_grp = min(repmat([1,Ngrp],Nite,1)+(0:Ngrp:(Nite-1)*Ngrp)',Nc);
+            n_grp = max(ceil(Nc/n_round),1);
+            n_round = ceil(Nc/n_grp);
+            idx_grp = min(repmat([1,n_grp],n_round,1)+(0:n_grp:(n_round-1)*n_grp)',Nc);
 
             % base proposal scale
-            % sigma0 = max(std(u_sed,0,2),eps);
+            % sigma0 = max(std(u_seed,0,2),eps);
             sigma0 = 1;
 
-            for iter = 1:Nite
-                % pCN parameters
-                sigma = min(lambda*sigma0,1);
-                rho   = sqrt(1-sigma.^2);
-                Nacp  = 0;
-                dNcal = 0;
-                ind_sam = ind_grp(iter,1):ind_grp(iter,2);
+            for iter = 1:n_round
+                % pCN parameters (Eqn. 22): xi = rho*u + sqrt(1-rho^2)*v
+                sigma_pcn = min(lambda_pcn*sigma0,1);
+                rho   = sqrt(1-sigma_pcn.^2);
+                n_acp = 0;
+                dN_cal = 0;
+                idx_sam = idx_grp(iter,1):idx_grp(iter,2);
 
                 for k=1:Ns
                     if k == 1 && sedsav
                         % start from seeds
-                        u(:,ind_sam,k) = u_sed(:,ind_sam);
-                        y(:,ind_sam,k) = y_sed(:,ind_sam);
+                        u(:,idx_sam,k) = u_seed(:,idx_sam);
+                        y(:,idx_sam,k) = y_seed(:,idx_sam);
                     else
-                        % pCN proposal
-                        u(:,ind_sam,k) = rho.*u_sed(:,ind_sam) + sigma.*du(:,ind_sam,k);
+                        % pCN proposal (Eqn. 22)
+                        u(:,idx_sam,k) = rho.*u_seed(:,idx_sam) + sigma_pcn.*v(:,idx_sam,k);
 
                         % evaluate target
-                        baystc = baystc.EvlY(u(:,ind_sam,k));
-                        y(:,ind_sam,k) = [baystc.EvlLKF;baystc.EvlPDF;baystc.Y];
+                        baystc = baystc.EvlY(u(:,idx_sam,k));
+                        y(:,idx_sam,k) = [baystc.EvlLKF;baystc.EvlPDF;baystc.Y];
 
-                        % MH accept/reject (log-scale)
-                        ind_rej = exp(y(1,ind_sam,k)-y_sed(1,ind_sam)) < p(1,ind_sam,k);
-                        ind_sam_rej = ind_sam(ind_rej);
+                        % MH accept/reject (Eqn. 23, log-scale)
+                        idx_rej = exp(y(1,idx_sam,k)-y_seed(1,idx_sam)) < u_mh(1,idx_sam,k);
+                        idx_sam_rej = idx_sam(idx_rej);
 
                         % revert rejected samples
-                        u(:,ind_sam_rej,k) = u_sed(:,ind_sam_rej);
-                        y(:,ind_sam_rej,k) = y_sed(:,ind_sam_rej);
+                        u(:,idx_sam_rej,k) = u_seed(:,idx_sam_rej);
+                        y(:,idx_sam_rej,k) = y_seed(:,idx_sam_rej);
 
                         % statistics
-                        Nacp  = Nacp + length(ind_sam)-length(ind_sam_rej);
-                        dNcal = dNcal + baystc.Ncal;
+                        n_acp  = n_acp + length(idx_sam)-length(idx_sam_rej);
+                        dN_cal = dN_cal + baystc.Ncal;
 
                         % update seeds
-                        u_sed(:,ind_sam) = u(:,ind_sam,k);
-                        y_sed(:,ind_sam) = y(:,ind_sam,k);
+                        u_seed(:,idx_sam) = u(:,idx_sam,k);
+                        y_seed(:,idx_sam) = y(:,idx_sam,k);
                     end
                 end
 
                 % acceptance rate
-                acp = Nacp/length(ind_sam)/Ns;
+                acp = n_acp/length(idx_sam)/Ns;
 
                 % adaptive scaling update
-                lambda = exp(log(lambda)+(acp-acpopt)/sqrt(iter));
+                lambda_pcn = exp(log(lambda_pcn)+(acp-acp_opt)/sqrt(iter));
 
                 % update total calls
-                Ncal = Ncal+dNcal;
+                N_cal = N_cal+dN_cal;
             end
         end
     end

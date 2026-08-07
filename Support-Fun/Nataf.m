@@ -281,26 +281,24 @@ classdef Nataf
             cdv = logGauss(Z,zeros(ndim,1),obj.Rho_U);
         end
 
-        function X = SamGen(obj,Nsze)
+        function X = SamGen(obj,N)
             % Generate random samples with input size
             % Syntax
             % -------------------------------------------------------------------------------
-            % X = randSam(obj,Nsam)
+            % X = SamGen(obj,N)
             % -------------------------------------------------------------------------------
             % Inputs:
             % -------------------------------------------------------------------------------
             % obj  : constructed nataf class
-            % Nsze : size of generated samples
-            % x_sed : initial samples
-            % y_sed : function list of x_sed
+            % N    : number of generated samples
             % -------------------------------------------------------------------------------
             % Outputs:
             % -------------------------------------------------------------------------------
-            % X    : generated samples                                            [Ndim,Nsam]
+            % X    : generated samples                                            [Ndim,N]
             % -------------------------------------------------------------------------------
             % generation of randn numbers
             ndim = obj.Ndim;
-            u = randn(ndim,Nsze);
+            u = randn(ndim,N);
             X = obj.U2X(u);
         end
     end

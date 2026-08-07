@@ -1,59 +1,48 @@
-function [x_sed,y_sed] = SedSlt(IntBay,x,y,Nsam)
-% select the seeds for next iteration
-% Syntax:
-% ----------------------------------------------------------------------
-% [x_sed,y_sed] = SedSlt(IntL,IntP,x,y,p)
-% ----------------------------------------------------------------------
+function [u_seed,y_seed] = SedSlt(IntBay,u,y,N)
+% Select the seeds for the next iteration (Eqn. 24):
+%   S_{i+1} = {k : g(U_k^(i)) < l_{i+1} }  (implemented by weighted
+%   resampling with weight proportional to the new ISF L_{i+1}).
 % INPUTS:
-% IntL  : Intermediate likelihood function
-% IntP  : Intermediate prior distribution
-% x     : generated samples from sampler                     [Ndim,Nsam]
-% y     : target function value of u                            [6,Nsam]
-%        --intermediate likelihood function Li
-%        --likelihood function L
-%        --target function f
-%        --intermediate prior PDF pi
-%        --prior PDF p
-%        --reference distribution PDF q
-% p     : filtering ratio
-% ----------------------------------------------------------------------
+%   IntBay : intermediate Bayesian model
+%   u      : samples in standard normal space                     [Ndim,N]
+%   y      : function list of u                                     [Nfun,N]
+%   N      : sample size of the next iteration
 % OUTPUTS:
-% x_sed : seed samples
-% y_sed : corresponding function list of x_sed
-% ----------------------------------------------------------------------
+%   u_seed : seed samples
+%   y_seed : corresponding function list of u_seed
 y = y(1:end,:);
-x = x(1:end,:);
-N = size(y,2);
-% weight for random resampling
-lograt = ResRat(IntBay,x,y,IntBay.G);
-w_rat = exp(lograt);
-Nc_max = round(sum(w_rat,"all")^2 / sum(w_rat.^2,"all"));
-if Nc_max<=0 || isnan(Nc_max)
-    x_sed = [];
-    y_sed = [];
+u = u(1:end,:);
+n_sam = size(y,2);
+% weight for random resampling (proportional to the new ISF)
+log_L_new = ResRat(IntBay,u,y,IntBay.G);
+w_seed = exp(log_L_new);
+Nc_eff = round(sum(w_seed,"all")^2 / sum(w_seed.^2,"all"));   % ESS
+if Nc_eff<=0 || isnan(Nc_eff)
+    u_seed = [];
+    y_seed = [];
     return
 else
-    if all(w_rat(:)==0 | w_rat(:)==1)
-        ind_can = logical(w_rat);
+    if all(w_seed(:)==0 | w_seed(:)==1)
+        idx_can = logical(w_seed);
     else
-        ind_can = randsample(N,Nc_max,true,w_rat);
+        idx_can = randsample(n_sam,Nc_eff,true,w_seed);
     end
 end
-x_can = x(:,ind_can);
-y_can = y(:,ind_can);
+u_can = u(:,idx_can);
+y_can = y(:,idx_can);
 % numbers of required seeds
-Ns = round(Nsam./(1:Nsam));
-Nc_can = round(Nsam./Ns);
-Nc_can = Nc_can(find(Nc_max-Nc_can>=0,1,"last"));
+Ns = round(N./(1:N));
+Nc_seed = round(N./Ns);
+Nc_seed = Nc_seed(find(Nc_eff-Nc_seed>=0,1,"last"));
 % generate seeds
-if Nc_max >= Nc_can
-    idx = randperm(Nc_max,Nc_can);
+if Nc_eff >= Nc_seed
+    idx_seed = randperm(Nc_eff,Nc_seed);
 else
-    idx = randi(Nc_max,1,Nc_can);
+    idx_seed = randi(Nc_eff,1,Nc_seed);
 end
-x_sed = x_can(:,idx);
-y_sed = y_can(:,idx);
-if ~isempty(y_sed)
-    y_sed = UpdY(IntBay,x_sed,y_sed);
+u_seed = u_can(:,idx_seed);
+y_seed = y_can(:,idx_seed);
+if ~isempty(y_seed)
+    y_seed = UpdY(IntBay,u_seed,y_seed);
 end
 end

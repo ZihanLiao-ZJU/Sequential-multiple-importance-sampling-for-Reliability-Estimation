@@ -1,18 +1,25 @@
 classdef MIS_Rel
     % MIS_Rel Multiple-importance-sampling reliability estimator (Pf + CoV bounds)
+    %
+    % Failure-probability estimator (Eqn. 9-10, 33) and single-run uncertainty
+    % quantification (Eqn. 34-58 with Appendices A-C):
+    %   P_hat_i = (1/N) sum_k W(U_k^(i); Z_hat)                 (Eqn. 33)
+    %   Var(P_hat_i) ~= MCS noise + Normalizing constant noise
+    %                  + Cross-term noise                         (Eqn. 56)
+    %   Var(P_hat_f) in [ sum Var_lower , (sum sqrt(Var_upper))^2 ]  (Eqn. 49/58)
 
     properties
-        TF     % limit-state function object
-        Nite   % number of proposal sets / levels
-        Pf     % failure probability (per LSF)
+        TF     % performance function object
+        Nite   % number of proposal sets / levels (M+1)
+        Pf_hat % failure probability (per PF)  (P_hat_f, Eqn. 9)
         intBay % Bayesian interface providing EvlPDF / EvlLKF
         X
         Y
         G
-        logC
-        W_res
+        log_z  % log normalizing constants: log_z(i) = log z_hat_i (Eqn. 28)
+        log_H  % log level-probability estimates: log_H{i} = log H_hat_{i+1} (Eqn. 30/31)
 
-        Pi_log % cell(Nlsf,1): store pi_log for each LSF
+        log_Pi_hat % cell(n_pf,1): store log P_hat_i for each PF (Eqn. 10/33)
     end
 
     methods
@@ -25,168 +32,307 @@ classdef MIS_Rel
             obj.Y = in.y;
             obj.G = in.g;
 
-            [obj.logC, obj.Y, obj.W_res] = obj.normalizeY(obj.X, obj.Y, obj.G);
-            w_mis = WgtMis_Blc(obj.intBay, obj.X, obj.Y, obj.G, obj.logC);
+            [obj.log_z, obj.Y, obj.log_H] = obj.normalizeY(obj.X, obj.Y, obj.G);
+            log_alpha = WgtMis_Blc(obj.intBay, obj.X, obj.Y, obj.G, obj.log_z);
 
-            Nlsf = obj.TF.Nfun;
-            Pf_loc = zeros(Nlsf, 1);
+            n_pf = obj.TF.Nfun;
+            Pf_hat = zeros(n_pf, 1);
 
-            % ---- store each pi_log as a property ----
-            obj.Pi_log = cell(Nlsf, 1);
+            % ---- store each log P_hat_i as a property ----
+            obj.log_Pi_hat = cell(n_pf, 1);
 
-            for ilsf = 1:Nlsf
-                w_is = cell(obj.Nite, 1);
+            for ipf = 1:n_pf
+                log_W = cell(obj.Nite, 1);
                 for ite = 1:obj.Nite
-                    yi = obj.Y{ite};
-                    idx_safe = (yi(3+ilsf, :) >= 0);
-                    w_is{ite} = yi(3,:) - yi(1,:) - yi(2,:);
-                    w_is{ite}(idx_safe) = -inf;
-                    w_is{ite} = reshape(w_is{ite}, size(yi,2:3));
+                    y_i = obj.Y{ite};
+                    idx_safe = (y_i(3+ipf, :) >= 0);
+                    % log W part before MIS denominator correction (Eqn. 8 numerator)
+                    log_W{ite} = y_i(3,:) - y_i(1,:) - y_i(2,:);
+                    log_W{ite}(idx_safe) = -inf;      % I_F: g >= 0 -> weight 0
+                    log_W{ite} = reshape(log_W{ite}, size(y_i,2:3));
                 end
 
-                pi_log = MisInt(w_mis, w_is);
+                log_Pi_hat = MisInt(log_alpha, log_W);   % Eqn. 10/33
 
-                % store log(pi) for this LSF
-                obj.Pi_log{ilsf} = pi_log;
+                % store log(P_hat_i) for this PF
+                obj.log_Pi_hat{ipf} = log_Pi_hat;
 
-                Pf_loc(ilsf) = exp(logsum(pi_log, "all"));
+                Pf_hat(ipf) = exp(logsum(log_Pi_hat, "all"));   % Eqn. 9
             end
 
-            obj.Pf = Pf_loc;
+            obj.Pf_hat = Pf_hat;
         end
 
-        function [CoV_Pf_lw, CoV_Pf_up] = estimateCov(obj)
-            N_lsf = obj.TF.Nfun;
+        function [CoV_lw, CoV_up] = estimateCov(obj)
+            % Estimate lower and upper bounds of CoV(Pf) from a single run (Eqn. 50-58).
+            %
+            % The single-run variance is decomposed into the three terms
+            % named in Eqn. 55-57:
+            %
+            %   Var(P_i)_lw = MCS noise + Normalizing constant noise (lower)
+            %   Var(P_i)_up = MCS noise + Normalizing constant noise (upper)
+            %                 + Cross-term noise
+            %
+            %   MCS noise                  : Var_U(P_hat_i | Z_hat)          (Eqn. 52/55)
+            %   Normalizing constant noise : sum_j sum_l d_ij d_il Cov(Zj,Zl) (Eqn. 51)
+            %   Cross-term noise           : sum_j f_ij E[Z_hat_j - z_j]      (Eqn. 55)
+            %                                (bias of Z_hat, Eqn. 37 upper)
+            %
+            % The relative covariance bounds of Z_hat are (Eqn. 38)
+            %
+            %   Cov_Z_lw(j,l) = sum_{m=1}^{min(j,l)} delta_Hm^2
+            %   Cov_Z_up(j,l) = sum_{m=1}^{j} delta_Hm * sum_{t=1}^{l} delta_Ht
+            %
+            % d_ij and f_ij are estimated by their (C.9) plug-in forms
+            %
+            %   D_hat_ij = (1/N) sum_k (1/Z_j) W_k alpha_j(U_k),
+            %   F_hat_ij = (tau_i/N^2) sum_k 2(W_k - P_i)
+            %              * ((1/Z_j) W_k alpha_j,k - D_hat_ij),
+            %
+            % with alpha_j(U) the balance-heuristic weight (Eqn. 6 / C.3) of
+            % the j-th NON-trivial ISD (row j+1 of log_alpha_full; row 1 is
+            % the initial level), and Cov(Z_j,Z_l) the absolute covariance
+            % zz .* Cov_rel (Eqn. 38).
+
+            n_pf = obj.TF.Nfun;
             M     = obj.Nite - 1;
-            N_ol  = 1e3;
-            % ---------- Var(Hhat_m) ----------
-            Var_Hhat = zeros(M,1);
+
+            % ===============================================================
+            % Step 1. Incremental level probabilities H_m and their variances
+            % ===============================================================
+            H_hat_mean = zeros(M,1);
+            var_H  = zeros(M,1);
+
             for m = 1:M
+                H_hat_mean(m) = exp(obj.log_z(m+1) - obj.log_z(m));
+
                 if m == 1
-                    p = exp(obj.logC(2));
-                    Var_Hhat(1) = p*(1-p) / prod(size(obj.Y{1},2:3));
+                    h1_hat = H_hat_mean(1);
+                    var_H(1) = h1_hat * (1 - h1_hat) / prod(size(obj.Y{1},2:3));
                 else
-                    [Var_Hhat(m),~] = MoveBlock(obj.W_res{m});
+                    [var_H(m), ~] = MoveBlock(obj.log_H{m});
                 end
             end
-            % ---------- mean(Hhat_m) ----------
-            Hhat_mean = zeros(M,1);
-            for m = 1:M
-                Hhat_mean(m) = exp(obj.logC(m+1) - obj.logC(m));
-            end
-            % ==============================================================
-            % LOWER: Corr(Hhat)=0
-            % ==============================================================
-            Hhat_smp = zeros(M,N_ol);
-            for m = 1:M
-                Hhat_smp(m,:) = sqrt(Var_Hhat(m)).*randn(1,N_ol) + Hhat_mean(m);
-            end
-            logZhat_smp = log(cumprod(Hhat_smp,1));
-            % ==============================================================
-            % UPPER: Corr(Hhat)=1
-            % ==============================================================
-            z0 = randn(1,N_ol);
-            Hhat_smp_up = zeros(M,N_ol);
-            for m = 1:M
-                Hhat_smp_up(m,:) = sqrt(Var_Hhat(m)).*z0 + Hhat_mean(m);
-            end
-            Hhat_smp_up = max(Hhat_smp_up, realmin);
-            logZhat_smp_up = log(cumprod(Hhat_smp_up,1));
-            CoV_Pf_lw = zeros(N_lsf,1);
-            CoV_Pf_up = zeros(N_lsf,1);
 
-            for ilsf = 1:N_lsf
-                % ================= LOWER =================
-                logPhat_i_smp = zeros(obj.Nite, N_ol);
-                Var_inner_i_smp = zeros(obj.Nite, N_ol);
+            % delta_Hm^2 = Var(H_hat_m) / H_hat_m^2   (Eqn. 34)
+            delta_H_sq = var_H ./ max(H_hat_mean.^2, realmin);
+            delta_H_sq = max(delta_H_sq, 0);
+            delta_H  = sqrt(delta_H_sq);
 
-                for r = 1:N_ol
-                    y_rnd = obj.Y;
-                    for m = 1:M
-                        y_rnd{m+1}(1,:) = obj.Y{m+1}(1,:) + obj.logC(m+1) - logZhat_smp(m,r);
+            % ===============================================================
+            % Step 2. Lower and upper bounds of relative covariance C^Z (Eqn. 38)
+            % ===============================================================
+            Cov_Z_lw = zeros(M,M);
+            Cov_Z_up = zeros(M,M);
+
+            for j = 1:M
+                for l = 1:M
+                    s_jl = sum(delta_H_sq(1:min(j,l)));
+
+                    Cov_Z_lw(j,l) = s_jl;
+                    Cov_Z_up(j,l) = sum(delta_H(1:j)) * sum(delta_H(1:l));
+                end
+            end
+
+            % ===============================================================
+            % Step 3. Normalizing constants
+            %
+            % z_0 = 1, z_i = exp(log_z(i+1)), i = 1,...,M  (Eqn. 28)
+            % ===============================================================
+            z_hat   = [1; exp(obj.log_z(2:end))];
+
+            % z_j * z_l factor: absolute covariance Cov(Z_j,Z_l) (Eqn. 38)
+            zz = z_hat(2:end) * z_hat(2:end).';
+
+            % ===============================================================
+            % Step 4. Bound for |E[Z_hat_j - z_j]|  (Eqn. 37 upper)
+            %
+            % |E[Z_hat_j - z_j]| <= z_j * sum_{1 <= l < m <= j} delta_Hm delta_Hl
+            % ===============================================================
+            bias_Z_upper = zeros(M,1);
+
+            for j = 1:M
+                delta_j = delta_H(1:j);
+
+                pair_sum = 0.5 * ((sum(delta_j))^2 - sum(delta_j.^2));
+
+                bias_Z_upper(j) = z_hat(j+1) * max(pair_sum, 0);
+            end
+
+            % ===============================================================
+            % Step 5. MIS denominator part at current run
+            % ===============================================================
+            [log_alpha, log_alpha_full] = WgtMis_Blc(obj.intBay, obj.X, obj.Y, obj.G, obj.log_z);
+
+            CoV_lw = zeros(n_pf,1);
+            CoV_up = zeros(n_pf,1);
+
+            % ===============================================================
+            % Step 6. Loop over performance functions
+            % ===============================================================
+            for ipf = 1:n_pf
+
+                Pf_hat_i = max(obj.Pf_hat(ipf), realmin);
+
+                % (strict (C.9) estimates do not need the component contributions)
+
+                var_mcmc = zeros(obj.Nite,1);
+                var_Z_lw = zeros(obj.Nite,1);
+                var_Z_up = zeros(obj.Nite,1);
+                cross_i  = zeros(obj.Nite,1);   % Cross-term noise (Eqn. 55)
+
+                % -----------------------------------------------------------
+                % 6.1 Loop over ISD levels
+                % -----------------------------------------------------------
+                for iLvl = 1:obj.Nite
+
+                    y_i = obj.Y{iLvl};
+                    sz = size(y_i);
+                    sz = [sz(2:end), 1];
+
+                    % Failure indicator: I_F = 1 when g(u) < 0
+                    idx_safe = (y_i(3 + ipf,:) >= 0);
+
+                    % Basic log weight part before MIS denominator correction (Eqn. 8)
+                    log_W_tmp = y_i(3,:) - y_i(1,:) - y_i(2,:);
+                    log_W_tmp(idx_safe) = -inf;
+
+                    log_W = zeros(sz);
+                    log_W(:) = log_W_tmp(:);
+
+                    % Final empirical MIS log weight:
+                    % this is the sequence used in P_hat_i = mean(W_i).
+                    log_W_emp = log_alpha{iLvl} + log_W;
+
+                    % -------------------------------------------------------
+                    % 6.1.1 MCS noise: Var_U(P_hat_i | Z_hat)  (Eqn. 52/55)
+                    %
+                    % This follows Eqn. 52 / Appendix B: MoveBlock is applied
+                    % to the final empirical MIS weight sequence (the one used
+                    % in P_hat_i = mean(W_i)). At the initial level (i = 0)
+                    % samples are i.i.d., so Var(W)/N applies (Eqn. B.4).
+                    % -------------------------------------------------------
+                    if iLvl == 1
+                        % i.i.d. samples at the initial level (Eqn. B.4):
+                        %   Var_U(P_hat_0 | Z_hat) = Var_U(W) / N
+                        W0          = exp(log_W_emp(:));
+                        var_mcmc(1) = var(W0) / numel(W0);
+                    else
+                        [var_mcmc(iLvl), ~] = MoveBlock(log_W_emp);
                     end
-                    w_mis = WgtMis_Blc(obj.intBay, obj.X, obj.Y, obj.G, [0; logZhat_smp(:,r)]);
-                    w_is = cell(obj.Nite,1);
-                    for iLvl = 1:obj.Nite
-                        yi = y_rnd{iLvl};
-                        sz = size(yi); sz = [sz(2:end), 1];
 
-                        idx_safe = (yi(3+ilsf,:) >= 0);
-                        w_tmp = yi(3,:) - yi(1,:) - yi(2,:);
-                        w_tmp(idx_safe) = -inf;
+                    % Explicit empirical MIS weights for F_hat
+                    W     = exp(log_W_emp(:));
+                    W_mean = mean(W);
 
-                        w_is{iLvl} = zeros(sz);
-                        w_is{iLvl}(:) = w_tmp(:);
-                    end
-                    logPhat_i_smp(:,r) = MisInt(w_mis, w_is);
+                    % -------------------------------------------------------
+                    % 6.1.2 Normalizing constant noise (Eqn. 51)
+                    %
+                    % Strict (C.9) plug-in estimate of d_ij:
+                    %   D_hat_ij = (1/N) sum_k (1/Z_j) W_k alpha_j(U_k),
+                    %   alpha_j(U) = balance weight of the j-th non-trivial
+                    %   ISD = row j+1 of log_alpha_full. Cov(Z_j,Z_l) is the
+                    %   absolute covariance zz .* Cov_rel (Eqn. 38).
+                    % -------------------------------------------------------
+                    if M > 0
+                        D_ij = zeros(M, 1);
 
-                    for iLvl = 1:obj.Nite
-                        pi_est = w_mis{iLvl} + w_is{iLvl};
-                        if iLvl == 1
-                            pi_est = reshape(pi_est, [], 10);
+                        for j = 1:M
+                            alpha_j = exp(log_alpha_full{iLvl}(j+1, :)).';
+                            D_ij(j) = mean(W .* alpha_j ./ z_hat(j+1));
                         end
-                        [Var_inner_i_smp(iLvl,r),~] = MoveBlock(pi_est);
-                    end
-                end
-                Var_outer_i = var(exp(logPhat_i_smp), 0, 2);
-                Var_Phat_i  = Var_outer_i + mean(Var_inner_i_smp,2);
-                CoV_Pf_lw(ilsf) = sqrt(sum(Var_Phat_i)) / obj.Pf(ilsf);
 
-                % ================= UPPER =================
-                logPhat_i_smp(:) = 0;
-                Var_inner_i_smp(:) = 0;
+                        var_Z_lw(iLvl) = max(D_ij.' * (zz .* Cov_Z_lw) * D_ij, 0);
+                        var_Z_up(iLvl) = max(D_ij.' * (zz .* Cov_Z_up) * D_ij, 0);
 
-                for r = 1:N_ol
-                    y_rnd = obj.Y;
-                    for m = 1:M
-                        y_rnd{m+1}(1,:) = obj.Y{m+1}(1,:) + obj.logC(m+1) - logZhat_smp_up(m,r);
-                    end
-                    w_mis = WgtMis_Blc(obj.intBay, obj.X, obj.Y, obj.G, [0; logZhat_smp_up(:,r)]);
-                    w_is = cell(obj.Nite,1);
-                    for iLvl = 1:obj.Nite
-                        yi = y_rnd{iLvl};
-                        sz = size(yi); sz = [sz(2:end), 1];
-                        idx_safe = (yi(3+ilsf,:) >= 0);
-                        w_tmp = yi(3,:) - yi(1,:) - yi(2,:);
-                        w_tmp(idx_safe) = -inf;
-                        w_is{iLvl} = zeros(sz);
-                        w_is{iLvl}(:) = w_tmp(:);
-                    end
-                    logPhat_i_smp(:,r) = MisInt(w_mis, w_is);
-                    for iLvl = 1:obj.Nite
-                        pi_est = w_mis{iLvl} + w_is{iLvl};
-                        if iLvl == 1
-                            pi_est = reshape(pi_est, [], 10);
+                        % ---------------------------------------------------
+                        % 6.1.3 Cross-term noise: plug-in F_ij  (Eqn. 54/55, C.9)
+                        %
+                        % F_ij ~= tau_i/N_i^2 *
+                        %        sum 2(W-W_mean)(1/Z_j*W*alpha_j - D_hat)
+                        %
+                        % MoveBlock estimates Var(P_hat_i | Z_hat), i.e.,
+                        %
+                        %   Var(P_hat_i | Z_hat)
+                        %      ~= (tau_i / N_i^2) * sum_k (W_k - W_mean)^2.
+                        %
+                        % Hence,
+                        %
+                        %   tau_i / N_i^2
+                        %      ~= Var(P_hat_i | Z_hat) / sum_k (W_k - W_mean)^2.
+                        % ---------------------------------------------------
+                        ss    = sum((W - W_mean).^2);
+                        scale = var_mcmc(iLvl) / max(ss, realmin);
+
+                        F_ij = zeros(M,1);
+
+                        for j = 1:M
+                            z_j     = z_hat(j+1);
+                            alpha_j = exp(log_alpha_full{iLvl}(j+1, :)).';
+
+                            dW_j = W .* alpha_j ./ z_j;      % (1/Z_j) W alpha_j (C.9)
+                            D_hat  = mean(dW_j);             % D_hat_ij (C.9)
+
+                            F_ij(j) = scale * sum( ...
+                                2 .* (W - W_mean) .* (dW_j - D_hat) );
                         end
-                        [Var_inner_i_smp(iLvl,r),~] = MoveBlock(pi_est);
+
+                        cross_i(iLvl) = sum(F_ij .* bias_Z_upper);  % Cross-term noise (Eqn. 55/57, no abs)
                     end
                 end
-                Var_outer_i = var(exp(logPhat_i_smp), 0, 2);
-                Var_Phat_i  = Var_outer_i + mean(Var_inner_i_smp,2);
-                CoV_Pf_up(ilsf) = sqrt((sum(sqrt(Var_Phat_i)))^2) / obj.Pf(ilsf);
+
+                % -----------------------------------------------------------
+                % 6.2 Component variance bounds
+                %
+                % Var(P_i)_lw = MCS noise + Normalizing constant noise (lower)
+                % Var(P_i)_up = MCS noise + Normalizing constant noise (upper)
+                %               + Cross-term noise
+                % -----------------------------------------------------------
+                var_Phat_lw = max(var_mcmc + var_Z_lw, 0);
+                var_Phat_up = max(var_mcmc + var_Z_up + cross_i, 0);
+
+                % -----------------------------------------------------------
+                % 6.3 Total variance bounds for Pf  (Eqn. 49/58)
+                %
+                % Lower bound assumes non-negative component cross-covariances.
+                % Upper bound follows the Cauchy-Schwarz aggregation.
+                % -----------------------------------------------------------
+                var_Pf_lw = sum(var_Phat_lw);
+                var_Pf_up = (sum(sqrt(var_Phat_up)))^2;
+
+                CoV_lw(ipf) = sqrt(max(var_Pf_lw, 0)) / Pf_hat_i;
+                CoV_up(ipf) = sqrt(max(var_Pf_up, 0)) / Pf_hat_i;
             end
         end
 
-        function [c_log, y_nor, w_res] = normalizeY(obj, x, y, g)
-            c_log = zeros(obj.Nite, 1);
-            y_nor = y;
-            w_res = cell(obj.Nite-1, 1);
+
+
+        function [log_z, y_norm, log_H] = normalizeY(obj, x, y, g)
+            % Sequential estimation of the ISD normalizing constants (Eqn. 28-31):
+            %   log_z(i+1) = log_z(i) + logmean( log H_hat_{i+1} )
+            % where (nested ISDs) log H_hat_{i+1} = log L_{i+1}(U^(i)) (Eqn. 31),
+            % and y_norm stores log L_i shifted by -log z_hat_i (Eqn. 32).
+            log_z = zeros(obj.Nite, 1);
+            y_norm = y;
+            log_H = cell(obj.Nite-1, 1);
 
             for ite = 1:obj.Nite - 1
                 obj.intBay.G = g{ite+1};
                 obj.intBay.X = x{ite}(1:end,:);
                 obj.intBay.Y = y{ite}(3:end,:);
 
-                pi_pdf = obj.intBay.EvlPDF;
-                Li_lkf = obj.intBay.EvlLKF;
+                log_pi = obj.intBay.EvlPDF;    % log pi_{ite+1}(u)
+                log_L  = obj.intBay.EvlLKF;    % log L_{ite+1}(u) (Eqn. 20)
 
-                w_res{ite} = Li_lkf + pi_pdf - y{ite}(1, :) - y{ite}(2, :);
-                w_res{ite} = w_res{ite} - max(w_res{ite}, [], "all");
-                c_log(ite+1) = c_log(ite) + logmean(w_res{ite}, "all");
-                y_nor{ite+1}(1,:) = y_nor{ite+1}(1,:) - c_log(ite+1);
+                % log H_hat_{ite+1} = log L_{ite+1} + log pi - log L_ite - log pi_ite
+                % (the rPDF pi is unchanged across iterations, so the pi terms cancel)
+                log_H{ite} = log_L + log_pi - y{ite}(1, :) - y{ite}(2, :);
+                log_H{ite} = log_H{ite} - max(log_H{ite}, [], "all");   % numeric stabilization
+                log_z(ite+1) = log_z(ite) + logmean(log_H{ite}, "all");
+                y_norm{ite+1}(1,:) = y_norm{ite+1}(1,:) - log_z(ite+1);  % Eqn. 32
 
-                w_res{ite} = reshape(w_res{ite}, size(y{ite},2:3));
-                y_nor{ite+1} = reshape(y_nor{ite+1}, size(y{ite+1}));
+                log_H{ite} = reshape(log_H{ite}, size(y{ite},2:3));
+                y_norm{ite+1} = reshape(y_norm{ite+1}, size(y{ite+1}));
             end
         end
     end

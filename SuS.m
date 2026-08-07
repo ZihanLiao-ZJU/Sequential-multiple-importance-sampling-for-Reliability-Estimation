@@ -1,9 +1,12 @@
 classdef SuS
-    % Subset simulation with Nataf transfomration for reliability problems
+    % Subset simulation with Nataf transformation for reliability problems.
+    % SuS is a special, restricted case of the SeMIS framework (Section 3.2):
+    % no variance inflation (sigma = 1) and no surrogate truncation; the ISF is
+    % simply L_i(u) = I[g(u) < l_i].
     properties
         % Name       Description                                       Type              Size
         % -----------------------------------------------------------------------------------
-        % LSF        Limit state function                              /                [1,1]
+        % PF        Performance function                              /                [1,1]
         % Nfun       Length of function list                           double           [1,1]
         % Ndim       Number of dimension of parameters                 double           [1,1]
         % X          Samples in standard normal space                  double     [Ndim,Nsam]
@@ -15,7 +18,7 @@ classdef SuS
         Ncal
         X
         Y
-        G = inf;
+        G = inf;      % PF threshold l_i (interface field kept for the SeMIS framework)
         p = 0.1;
         Nsam = 1000;
     end
@@ -39,11 +42,11 @@ classdef SuS
     end
 
     methods
-        function obj = SuS(LSF)
-            % Initializatipon
+        function obj = SuS(PF)
+            % Initialization
             % ----------------------------------------------------------------------
             % SYNTAX:
-            % obj = BayLSF(Tfun)
+            % obj = SuS(PF)
             % ----------------------------------------------------------------------
             % INPUTS:
             % Tfun : Target function
@@ -51,9 +54,9 @@ classdef SuS
             % OUTPUTS:
             % obj  : constructed class
             % ----------------------------------------------------------------------
-            obj.TF = LSF;
-            obj.Nfun = LSF.Nfun+3;
-            obj.Ndim = LSF.Ndim;
+            obj.TF = PF;
+            obj.Nfun = PF.Nfun+3;
+            obj.Ndim = PF.Ndim;
         end
 
         function obj = EvlY(obj,u)
@@ -70,18 +73,18 @@ classdef SuS
             % obj   : class with updated Y
             % y     : function list of samples                              [2,Nsam]
             %         --parameter distribution PDF P                        [1,Nsam]
-            %         --LSF value f                                         [1,Nsam]
+            %         --PF value g                                         [1,Nsam]
             % ----------------------------------------------------------------------
             x = U2X(obj,u);
-            f = obj.TF.EvlLSF(x);
-            logp = logGauss(u);
+            g_val = obj.TF.EvlLSF(x);
+            log_phi = logGauss(u);
             obj.X = u;
-            obj.Y = [logp;f];
+            obj.Y = [log_phi;g_val];
             obj.Ncal = size(u,2);
         end
 
-        function Li = EvlLKF(obj)
-            % Evaluate the Intermediate likelihood Li
+        function log_L = EvlLKF(obj)
+            % Evaluate the Intermediate likelihood Li = I[g(u) < l_i]
             % ----------------------------------------------------------------------
             % SYNTAX:
             % Li = EvlLi(obj,f)
@@ -90,19 +93,19 @@ classdef SuS
             % obj   : class constructed                                        [1,1]
             % y     : function list of samples                              [2,Nsam]
             %         --parameter distribution PDF                          [1,Nsam]
-            %         --LSF value                                           [1,Nsam]
+            %         --PF value                                           [1,Nsam]
             % ----------------------------------------------------------------------
             % OUTPUTS:
             % Li    : intermediate likelihood function Li                   [1,Nsam]
             % ----------------------------------------------------------------------
             y = obj.Y;
-            f = y(2,:); % LSF value
-            g = obj.G;
-            Li = log(double(f<g));
+            g_val = y(2,:);       % PF value g(u)
+            l_th = obj.G;         % threshold l_i
+            log_L = log(double(g_val < l_th));
         end
 
-        function Pi = EvlPDF(obj)
-            % Evaluate the Intermediate prior PDF pi
+        function log_pi = EvlPDF(obj)
+            % Evaluate the Intermediate prior PDF pi = phi_n(u) (no inflation, sigma = 1)
             % ----------------------------------------------------------------------
             % SYNTAX:
             % Li = EvlLi(obj,f)
@@ -111,17 +114,17 @@ classdef SuS
             % obj   : class constructed                                        [1,1]
             % y     : function list of samples                              [2,Nsam]
             %         --parameter distribution PDF                          [1,Nsam]
-            %         --LSF value                                           [1,Nsam]
+            %         --PF value                                           [1,Nsam]
             % ----------------------------------------------------------------------
             % OUTPUTS:
             % Li    : intermediate likelihood function Li                   [1,Nsam]
             % ----------------------------------------------------------------------
             y = obj.Y;
-            logp = y(1,:);
-            Pi = logp;
+            log_phi = y(1,:);
+            log_pi = log_phi;
         end
 
-        function [y,g,obj,Ncal] = UpdObj(obj,~,y)
+        function [y,l,obj,N_cal] = UpdObj(obj,~,y)
             % Update obj with Y
             % ----------------------------------------------------------------------
             % SYNTAX:
@@ -133,43 +136,42 @@ classdef SuS
             %         --intermediate likelihood function Li                 [1,Nsam]
             %         --intermediate prior PDF pi                           [1,Nsam]
             %         --parameter distribution PDF P                        [1,Nsam]
-            %         --LSF value f                                         [1,Nsam]
+            %         --PF value g                                         [1,Nsam]
             % p     : conditional probability in SuS
             % ----------------------------------------------------------------------
             % OUTPUTS:
-            % g     : updated parameters for intermediate likelihood function
-            % h     : updated parameters for intermediate prior distribution
+            % l     : updated threshold for intermediate likelihood function
             % obj   : class updated
             % ----------------------------------------------------------------------
 
-            % update g
-            f = y(4,:);
-            g = max(quantile(f,obj.p),0);
+            % update the threshold l_i (Eqn. 24, SuS case)
+            g_val = y(4,:);
+            l = max(quantile(g_val,obj.p),0);
             % update obj
-            obj.G = g;
-            Ncal = 0;
+            obj.G = l;
+            N_cal = 0;
         end
 
         function FlgCvg = get.FlgCvg(obj)
             FlgCvg = obj.G<=0;
         end
 
-        function Pf = EvlPf(~,in)
+        function Pf_hat = EvlPf(~,in)
             Nite = in.Nite;
             y = in.y;
-            g = in.g;
+            l = in.g;              % thresholds l_i for each level
 
-            % Normalize y
+            % Normalize y: z_hat = prod_m H_hat_m (Eqn. 28 with H_hat_m of Eqn. 31)
             % --------------------------------------------------------------------------
-            c = ones(Nite+1,1);
+            z_hat = ones(Nite+1,1);
             for ite = 1:Nite
-                fth = g{ite+1};
+                l_th = l{ite+1};
                 yi = y{ite}(4,:);
-                w = yi<fth;
-                c(ite+1) = c(ite)*mean(w,"all");
+                ind_H = yi < l_th;                       % I[g < l_{ite+1}] (Eqn. 31)
+                z_hat(ite+1) = z_hat(ite)*mean(ind_H,"all");
             end
             % --------------------------------------------------------------------------
-            Pf = c(Nite+1);
+            Pf_hat = z_hat(Nite+1);
         end
     end
 end

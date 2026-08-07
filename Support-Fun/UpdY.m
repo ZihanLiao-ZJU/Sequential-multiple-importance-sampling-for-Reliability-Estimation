@@ -1,4 +1,4 @@
-function y = UpdY(IntBay,x,y)
+function y = UpdY(IntBay,u,y)
 % evaluate the likelihood function values
 % ----------------------------------------------------------------------
 % SYNTAX:
@@ -6,21 +6,22 @@ function y = UpdY(IntBay,x,y)
 % ----------------------------------------------------------------------
 % INPUTS:
 % obj   : class constructed
+% u     : seed samples in standard normal space             [Ndim,Nsam]
 % y     : function list of samples                         [Nfun+3,Nsam]
 % ----------------------------------------------------------------------
 % OUTPUTS:
 % y     : output function values                           [Nfun+3,Nsam]
-%         --intermediate likelihood function Li                 [1,Nsam]
-%         --intermediate prior PDF pi                           [1,Nsam]
-%         --parameter distribution PDF P                        [1,Nsam]
-%         --LSF value f                                      [Nfun,Nsam]
+%         --intermediate likelihood function log L_i (ISF)      [1,Nsam]
+%         --intermediate prior PDF log pi_i (rPDF)              [1,Nsam]
+%         --standard normal log-PDF log phi_n                   [1,Nsam]
+%         --PF value g                                      [Nfun,Nsam]
 % ----------------------------------------------------------------------
 
-% extraction the y except for Li and pi
+% extraction the y except for log L_i and log pi_i
 y = y(3:end,:);
-IntBay.X = x;
+IntBay.X = u;
 IntBay.Y = y;
-pi = IntBay.EvlPDF;
-Li = IntBay.EvlLKF;
-y = [Li;pi;y];
+log_pi = IntBay.EvlPDF;
+log_L = IntBay.EvlLKF;
+y = [log_L;log_pi;y];
 end

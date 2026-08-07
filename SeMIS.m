@@ -5,16 +5,16 @@ classdef SeMIS
     % Sequential Multiple Importance Sampling (SeMIS) framework.
     %
     % The algorithm sequentially constructs a series of intermediate importance sampling
-    % distributions (ISDs) and generates samples from each ISD to progressively approach
-    % the failure domain. At each iteration:
+    % distributions (ISDs) q_i(u) = pi_i(u) * L_i(u) / z_i  (Eqn. 11/21) and generates
+    % samples from each ISD to progressively approach the failure domain. At each iteration:
     %
-    %   1) Samples are generated from the current ISD.
-    %   2) The intermediate distribution parameter is updated.
-    %   3) Seed samples are selected for the next iteration.
-    %   4) New samples are produced from seeds using MCMC.
+    %   1) Samples are generated from the current ISD q_i.
+    %   2) The intermediate distribution parameters (l_i, l_hat_i, ...) are updated.
+    %   3) Seed samples S_{i+1} are selected for the next iteration (Eqn. 24).
+    %   4) New samples are produced from seeds using pMCMC (Eqn. 22-23).
     %
     % The resulting sequence of ISDs and samples is used for multiple importance sampling
-    % (MIS) estimation of the failure probability.
+    % (MIS) estimation of the failure probability (Eqn. 9-10).
     %
     % ---------------------------------------------------------------------------------------
     % Configuration
@@ -50,7 +50,7 @@ classdef SeMIS
         % ---------------------------------------------------------------------------------
         % IntBay      Intermediate Bayesian model defining ISD         object
         % Sampler     Sampling object (must contain BayStc, SamGen)    object
-        % NumSam      Number of samples per iteration                  double / vector
+        % NumSam      Number of samples per iteration (N in paper)     double / vector
         % G           Predefined parameters of intermediate ISDs       cell / vector
         % X           Storage for generated samples                    cell
         % Y           Storage for function evaluations                 cell
@@ -61,7 +61,7 @@ classdef SeMIS
         % Sampler object (must contain .BayStc, .SamGen methods)
         Sampler
 
-        % Number of samples per iteration (scalar or vector)
+        % Number of samples per iteration N (scalar or vector)
         NumSam
 
         % Predefined intermediate distribution parameters
@@ -102,22 +102,22 @@ classdef SeMIS
             % out = RunIte(obj)
             %
             % DESCRIPTION:
-            % Executes the iterative SeMIS procedure:
-            %   1) Generate samples from the current ISD.
-            %   2) Update the intermediate distribution parameter.
-            %   3) Select seed samples for the next iteration.
-            %   4) Generate samples from seeds using MCMC.
+            % Executes the iterative SeMIS procedure (Algorithm 1):
+            %   1) Generate samples from the current ISD q_i.
+            %   2) Update the intermediate distribution parameters.
+            %   3) Select seed samples S_{i+1} for the next iteration.
+            %   4) Generate samples from seeds using pMCMC.
             %
             % Iterations terminate when the convergence criterion defined in
-            % the intermediate Bayesian model is satisfied.
+            % the intermediate Bayesian model is satisfied (l_{i+1} <= 0).
             %
             % OUTPUTS:
             % out : structure containing
-            %       x        - samples from each iteration
+            %       x        - samples (standard-normal space U) from each iteration
             %       y        - function evaluations
             %       g        - intermediate distribution parameters
-            %       Nsam     - number of samples per iteration
-            %       Nsze     - chain structure [#chains, samples per chain]
+            %       Nsam     - number of samples per iteration (N)
+            %       Nsze     - chain structure [#chains Nc, samples per chain Ns]
             %       Ncal     - number of function evaluations
             %       Nite     - number of iterations performed
             %       flg_cvg  - convergence flag
@@ -127,67 +127,67 @@ classdef SeMIS
             % Extract settings
             intBay  = obj.IntBay;
             sampler = obj.Sampler;
-            maxi    = obj.MaxIte;
-            flg_Nsam = numel(obj.NumSam) > 1;
-            flg_IntD = ~isempty(obj.G);
+            max_ite = obj.MaxIte;
+            flg_N = numel(obj.NumSam) > 1;
+            flg_predef = ~isempty(obj.G);
 
             % Initialize storage
-            Nsam = zeros(maxi,1);      % sample size per iteration
-            Nsze = zeros(maxi,2);      % chain structure [#chains, samples/chain]
-            Ncal = zeros(maxi,1);      % number of function evaluations
-            x = cell(maxi,1); y = cell(maxi,1); g = cell(maxi,1);
+            N = zeros(max_ite,1);        % sample size per iteration
+            Nc_Ns = zeros(max_ite,2);    % chain structure [#chains, samples/chain]
+            N_cal = zeros(max_ite,1);    % number of function evaluations
+            u = cell(max_ite,1); y = cell(max_ite,1); g = cell(max_ite,1);
 
             % Sample size setup
-            if flg_Nsam
-                Nite_sam = length(obj.NumSam);
-                Nsam(1:Nite_sam) = obj.NumSam;
+            if flg_N
+                n_predef = length(obj.NumSam);
+                N(1:n_predef) = obj.NumSam;
             else
-                Nsam(:) = obj.NumSam;
+                N(:) = obj.NumSam;
             end
-            Nsze(1,:) = [Nsam(1), 1];
+            Nc_Ns(1,:) = [N(1), 1];
 
             % Intermediate distribution setup
-            if flg_IntD
-                Nite_int = length(obj.G);
-                g(1:Nite_int) = obj.G;
+            if flg_predef
+                n_predef = length(obj.G);
+                g(1:n_predef) = obj.G;
             else
-                Nite_int = 0;
+                n_predef = 0;
                 g{1} = intBay.G;
             end
 
             % ===================== Sequential iterations =====================
-            for ite = 1:maxi
+            for ite = 1:max_ite
                 % === Sample Generation ===
-                if all(Nsze(ite,:) > 0) && ~isnan(Nsze(ite,2))
+                if all(Nc_Ns(ite,:) > 0) && ~isnan(Nc_Ns(ite,2))
                     if ite == 1
-                        [x{ite}, y{ite}, Ncal(ite),intBay] = SamGen(intBay,Nsze(ite,1));
+                        [u{ite}, y{ite}, N_cal(ite), intBay] = SamGen(intBay, Nc_Ns(ite,1));
                     else
-                        [x{ite}, y{ite}, Ncal(ite),intBay] = sampler.SamGen(x_sed, y_sed, Nsze(ite,2));
+                        [u{ite}, y{ite}, N_cal(ite), intBay] = sampler.SamGen(u_seed, y_seed, Nc_Ns(ite,2));
                     end
                 end
-                Nsam(ite) = prod(Nsze(ite,:));
+                N(ite) = prod(Nc_Ns(ite,:));
 
                 % === Update Intermediate Distribution ===
-                if ite + 1 <= Nite_int
+                if ite + 1 <= n_predef
                     intBay.G = g{ite+1};
                 else
-                    [y{ite}, g{ite+1}, intBay, dNcal] = intBay.UpdObj(x{ite},y{ite});
+                    [y{ite}, g{ite+1}, intBay, dN_cal] = intBay.UpdObj(u{ite}, y{ite});
                 end
                 sampler.BayStc = intBay;
-                Ncal(ite) = Ncal(ite)+dNcal;
+                N_cal(ite) = N_cal(ite) + dN_cal;
 
-                % === Seed Selection ===
+                % === Seed Selection (Eqn. 24) ===
                 % Select samples consistent with the next ISD
-                [x_sed, y_sed] = SedSlt(intBay, x{ite}, y{ite}, Nsam(ite+1));
+                [u_seed, y_seed] = SedSlt(intBay, u{ite}, y{ite}, N(ite+1));
 
-                Nsze(ite+1,1) = size(x_sed,2);                    % number of chains
-                Nsze(ite+1,2) = round(Nsam(ite+1) / Nsze(ite+1,1)); % samples per chain
+                Nc_Ns(ite+1,1) = size(u_seed,2);                    % number of chains Nc
+                Nc_Ns(ite+1,2) = round(N(ite+1) / Nc_Ns(ite+1,1));  % samples per chain Ns
 
                 % === Display Iteration Summary ===
-                DspRst(ite, Nsam(ite), Nsze(ite,:), Ncal(ite));
+                DspRst(ite, N(ite), Nc_Ns(ite,:), N_cal(ite));
 
                 % === Convergence Check ===
-                if Nsze(ite+1,1) <= 0 || ite + 1 == maxi
+                if Nc_Ns(ite+1,1) <= 0 || ite + 1 == max_ite
                     flg_cvg = false;
                     break
                 elseif intBay.FlgCvg
@@ -198,16 +198,16 @@ classdef SeMIS
 
             % ===================== Post-processing =====================
             Nite = ite;
-            [x, y, Nsam, Nsze, Ncal] = VabSrk(Nite, x, y, Nsam, Nsze, Ncal);
+            [u, y, N, Nc_Ns, N_cal] = VabSrk(Nite, u, y, N, Nc_Ns, N_cal);
             g = VabSrk(Nite + 1, g);
 
             % ===================== Output =====================
-            out.x = x;
+            out.x = u;             % samples in the standard-normal space (paper: U)
             out.y = y;
             out.g = g;
-            out.Nsam = Nsam;
-            out.Nsze = Nsze;
-            out.Ncal = Ncal;
+            out.Nsam = N;
+            out.Nsze = Nc_Ns;
+            out.Ncal = N_cal;
             out.Nite = Nite;
             out.flg_cvg = flg_cvg;
             out.intBay = intBay;

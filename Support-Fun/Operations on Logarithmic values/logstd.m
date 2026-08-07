@@ -15,11 +15,11 @@ function B = logstd(A,dim)
 % -----------------------------------------------------------------------------------
 % B    : std (in logarithm) array
 % -----------------------------------------------------------------------------------
-Nsze = size(A);
+sz = size(A);
 logmu = logmean(A,dim);
 if strcmpi(dim,'all')
-    B = (logsum(2*real(logminus(A,logmu)),dim) - log(prod(Nsze,dim)-1))/2;
+    B = (logsum(2*real(logminus(A,logmu)),dim) - log(prod(sz,dim)-1))/2;
 else
-    B = (logsum(2*real(logminus(A,logmu)),dim) - log(Nsze(dim)-1))/2;
+    B = (logsum(2*real(logminus(A,logmu)),dim) - log(sz(dim)-1))/2;
 end
 return

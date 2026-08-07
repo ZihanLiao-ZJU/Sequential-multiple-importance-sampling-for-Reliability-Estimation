@@ -3,7 +3,7 @@
 MATLAB implementation of the paper
 
 > **Sequential multiple importance sampling for robust and efficient (possibly high-dimensional) reliability estimation**
-> (Mechanical Systems and Signal Processing, 2025 — doi: 10.1016/j.ymssp.2024.111950)
+> (Mechanical Systems and Signal Processing, 2026 — doi: )
 
 The toolbox estimates the failure probability
 

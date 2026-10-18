@@ -128,7 +128,19 @@ The paper (Eqn. 34–58, Appendices A–C) derives analytical bounds of the CoV 
 
 If you use this code in your research, please cite:
 
-> Sequential multiple importance sampling for robust and efficient (possibly high-dimensional) reliability estimation. *Mechanical Systems and Signal Processing*, 259 (2026) 114798. https://doi.org/10.1016/j.ymssp.2026.114798
+> Xia, W., Liao, Z., & Li, B. (2026). Sequential multiple importance sampling for robust and efficient (possibly high-dimensional) reliability estimation. *Mechanical Systems and Signal Processing*, 259, 114798. https://doi.org/10.1016/j.ymssp.2026.114798
+
+```bibtex
+@article{xia2026sequential,
+  title   = {Sequential multiple importance sampling for robust and efficient (possibly high-dimensional) reliability estimation},
+  author  = {Xia, Weili and Liao, Zihan and Li, Binbin},
+  journal = {Mechanical Systems and Signal Processing},
+  volume  = {259},
+  pages   = {114798},
+  year    = {2026},
+  doi     = {10.1016/j.ymssp.2026.114798}
+}
+```
 
 ## License
 

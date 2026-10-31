@@ -102,7 +102,7 @@ classdef SeMIS_high_dimension
             log_pi = logGauss(obj.X, obj.G.mu_pi, obj.G.Sigma);
         end
 
-        function [y,g,obj,N_cal] = UpdObj(obj,u,y)
+        function [y,g,obj,N_cal] = UpdObj(obj,u,y,p)
             % Update the intermediate distribution parameters
             %   l          : exact PF threshold = p-quantile of g (Eqn. 24)
             %   pls_beta   : PLS hyperplane fitted on the seed samples only (Eqn. 26)
@@ -110,6 +110,7 @@ classdef SeMIS_high_dimension
             g_val = y(4,:);
             u = u(1:end,:);
             g = obj.G;
+            if nargin >= 4, g.p = p; end
             n_sam = size(u,2);
 
             l        = max(quantile(g_val, g.p), 0);   % threshold l_i (Eqn. 24)

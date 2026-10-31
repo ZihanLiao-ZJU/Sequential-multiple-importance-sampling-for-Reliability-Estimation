@@ -118,7 +118,7 @@ classdef SeMIS_low_dimension
             log_pi = logGauss(obj.X,obj.G.mu_pi,obj.G.Sigma);
         end
 
-        function [y,g,obj,N_cal] = UpdObj(obj,u,y)
+        function [y,g,obj,N_cal] = UpdObj(obj,u,y,p)
             % Update the intermediate distribution parameters
             %   l_i       : exact PF threshold = p-quantile of g (Eqn. 24)
             %   g_hat_{i+1}: Kriging surrogate trained on evaluated samples (Eqn. 25)
@@ -126,6 +126,7 @@ classdef SeMIS_low_dimension
             g_val = y(4,:);
             u = u(1:end,:);
             g = obj.G;
+            if nargin >= 4, g.p = p; end
 
             l        = max(quantile(g_val,g.p),0);     % threshold l_i (Eqn. 24)
             ind_seed = g_val < l;                      % seed set S_{i+1} (Eqn. 24)

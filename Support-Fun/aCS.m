@@ -21,6 +21,20 @@ classdef aCS
             % Generate MCMC samples targeting q_i = pi_i * L_i / z_i  (Eqn. 21)
             % pCN proposal (Eqn. 22) + adaptive scaling on acceptance rate.
 
+            if nargin == 3
+                baystc = obj.BayStc;
+                if isstruct(baystc.G) && isfield(baystc.G,'L_pi')
+                    L_pi = baystc.G.L_pi;
+                else
+                    L_pi = eye(baystc.Ndim);
+                end
+                u = L_pi*randn(baystc.Ndim,u_seed);
+                baystc = baystc.EvlY(u);
+                y = [baystc.EvlLKF;baystc.EvlPDF;baystc.Y];
+                N_cal = baystc.Ncal;
+                return
+            end
+
             % initialization
             baystc = obj.BayStc;
             sedsav = obj.SedSav;

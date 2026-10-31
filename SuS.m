@@ -1,177 +1,103 @@
 classdef SuS
-    % Subset simulation with Nataf transformation for reliability problems.
-    % SuS is a special, restricted case of the SeMIS framework (Section 3.2):
-    % no variance inflation (sigma = 1) and no surrogate truncation; the ISF is
-    % simply L_i(u) = I[g(u) < l_i].
+    % Scalar subset-simulation intermediate distribution (no iteration loop).
+    % The two reliability toolboxes use this identical class.
+    % CoordinateSystem: 'standard_normal' (PF.Dist) or 'physical' (PF.Rdis).
+    % ThresholdRule: 'hazen' quantile or 'midpoint' at round(N*p).
+    % ClipThreshold selects whether the final threshold is clamped at zero.
     properties
-        % Name       Description                                       Type              Size
-        % -----------------------------------------------------------------------------------
-        % PF        Performance function                              /                [1,1]
-        % Nfun       Length of function list                           double           [1,1]
-        % Ndim       Number of dimension of parameters                 double           [1,1]
-        % X          Samples in standard normal space                  double     [Ndim,Nsam]
-        % Y          Y value of U                                      doubl         [4,Nsam]
-        % -----------------------------------------------------------------------------------
         TF
         Nfun
         Ndim
-        Ncal
+        Ncal = 0;
         X
         Y
-        G = inf;      % PF threshold l_i (interface field kept for the SeMIS framework)
+        G = inf;
+        H = nan;
         p = 0.1;
         Nsam = 1000;
+        CoordinateSystem = 'standard_normal';
+        ThresholdRule = 'hazen';
+        ClipThreshold = true;
     end
-
-    properties
-        % Properties to be updated:
-        % Name       Description                                         Type            Size
-        % -----------------------------------------------------------------------------------
-        % G          Parameters determine intermediate Bay inf           double         [1,2]
-        % -----------------------------------------------------------------------------------
-
-    end
-
     properties(Dependent)
-        % Dependent properties:
-        % Name        Description                                        Type            Size
-        % -----------------------------------------------------------------------------------
-        % FlgCvg      flag of convergence                                logical        [1,1]
-        % -----------------------------------------------------------------------------------
         FlgCvg
     end
-
     methods
-        function obj = SuS(PF)
-            % Initialization
-            % ----------------------------------------------------------------------
-            % SYNTAX:
-            % obj = SuS(PF)
-            % ----------------------------------------------------------------------
-            % INPUTS:
-            % Tfun : Target function
-            % ----------------------------------------------------------------------
-            % OUTPUTS:
-            % obj  : constructed class
-            % ----------------------------------------------------------------------
-            obj.TF = PF;
-            obj.Nfun = PF.Nfun+3;
-            obj.Ndim = PF.Ndim;
+        function obj = SuS(PF,coordinate_system,threshold_rule,clip_threshold)
+            obj.TF=PF;obj.Nfun=PF.Nfun+3;obj.Ndim=PF.Ndim;
+            if nargin>=2,obj.CoordinateSystem=coordinate_system;end
+            if nargin>=3,obj.ThresholdRule=threshold_rule;end
+            if nargin>=4,obj.ClipThreshold=clip_threshold;end
+            assert(any(strcmp(obj.CoordinateSystem,{'standard_normal','physical'})));
+            assert(any(strcmp(obj.ThresholdRule,{'hazen','midpoint'})));
         end
-
         function obj = EvlY(obj,u)
-            % evaluate the Y values
-            % ----------------------------------------------------------------------
-            % SYNTAX:
-            % y = EvlLKF(obj,theta)
-            % ----------------------------------------------------------------------
-            % INPUTS:
-            % obj   : class constructed
-            % u     : Samples in standard normal space                   [Ndim,Nsam]
-            % ----------------------------------------------------------------------
-            % OUTPUTS:
-            % obj   : class with updated Y
-            % y     : function list of samples                              [2,Nsam]
-            %         --parameter distribution PDF P                        [1,Nsam]
-            %         --PF value g                                         [1,Nsam]
-            % ----------------------------------------------------------------------
-            x = U2X(obj,u);
-            g_val = obj.TF.EvlLSF(x);
-            log_phi = logGauss(u);
-            obj.X = u;
-            obj.Y = [log_phi;g_val];
-            obj.Ncal = size(u,2);
-        end
-
-        function log_L = EvlLKF(obj)
-            % Evaluate the Intermediate likelihood Li = I[g(u) < l_i]
-            % ----------------------------------------------------------------------
-            % SYNTAX:
-            % Li = EvlLi(obj,f)
-            % ----------------------------------------------------------------------
-            % INPUTS:
-            % obj   : class constructed                                        [1,1]
-            % y     : function list of samples                              [2,Nsam]
-            %         --parameter distribution PDF                          [1,Nsam]
-            %         --PF value                                           [1,Nsam]
-            % ----------------------------------------------------------------------
-            % OUTPUTS:
-            % Li    : intermediate likelihood function Li                   [1,Nsam]
-            % ----------------------------------------------------------------------
-            y = obj.Y;
-            g_val = y(2,:);       % PF value g(u)
-            l_th = obj.G;         % threshold l_i
-            log_L = log(double(g_val < l_th));
-        end
-
-        function log_pi = EvlPDF(obj)
-            % Evaluate the Intermediate prior PDF pi = phi_n(u) (no inflation, sigma = 1)
-            % ----------------------------------------------------------------------
-            % SYNTAX:
-            % Li = EvlLi(obj,f)
-            % ----------------------------------------------------------------------
-            % INPUTS:
-            % obj   : class constructed                                        [1,1]
-            % y     : function list of samples                              [2,Nsam]
-            %         --parameter distribution PDF                          [1,Nsam]
-            %         --PF value                                           [1,Nsam]
-            % ----------------------------------------------------------------------
-            % OUTPUTS:
-            % Li    : intermediate likelihood function Li                   [1,Nsam]
-            % ----------------------------------------------------------------------
-            y = obj.Y;
-            log_phi = y(1,:);
-            log_pi = log_phi;
-        end
-
-        function [y,l,obj,N_cal] = UpdObj(obj,~,y)
-            % Update obj with Y
-            % ----------------------------------------------------------------------
-            % SYNTAX:
-            % [g,h,obj] = UpdObj(obj,y)
-            % ----------------------------------------------------------------------
-            % INPUTS:
-            % obj   : class constructed                                        [1,1]
-            % y     : output function values                                [4,Nsam]
-            %         --intermediate likelihood function Li                 [1,Nsam]
-            %         --intermediate prior PDF pi                           [1,Nsam]
-            %         --parameter distribution PDF P                        [1,Nsam]
-            %         --PF value g                                         [1,Nsam]
-            % p     : conditional probability in SuS
-            % ----------------------------------------------------------------------
-            % OUTPUTS:
-            % l     : updated threshold for intermediate likelihood function
-            % obj   : class updated
-            % ----------------------------------------------------------------------
-
-            % update the threshold l_i (Eqn. 24, SuS case)
-            g_val = y(4,:);
-            l = max(quantile(g_val,obj.p),0);
-            % update obj
-            obj.G = l;
-            N_cal = 0;
-        end
-
-        function FlgCvg = get.FlgCvg(obj)
-            FlgCvg = obj.G<=0;
-        end
-
-        function Pf_hat = EvlPf(~,in)
-            Nite = in.Nite;
-            y = in.y;
-            l = in.g;              % thresholds l_i for each level
-
-            % Normalize y: z_hat = prod_m H_hat_m (Eqn. 28 with H_hat_m of Eqn. 31)
-            % --------------------------------------------------------------------------
-            z_hat = ones(Nite+1,1);
-            for ite = 1:Nite
-                l_th = l{ite+1};
-                yi = y{ite}(4,:);
-                ind_H = yi < l_th;                       % I[g < l_{ite+1}] (Eqn. 31)
-                z_hat(ite+1) = z_hat(ite)*mean(ind_H,"all");
+            obj.X=u;
+            if strcmp(obj.CoordinateSystem,'physical')
+                f=obj.TF.EvlLSF(u);
+                log_phi=obj.TF.Rdis.EvlPDF(u);
+            else
+                f=obj.TF.EvlLSF(obj.TF.Dist.U2X(u));
+                log_phi=logGauss(u);
             end
-            % --------------------------------------------------------------------------
-            Pf_hat = z_hat(Nite+1);
+            obj.Y=[log_phi;f];obj.Ncal=size(u,2);
+        end
+        function value = EvlLKF(obj)
+            f=obj.Y(2,:);
+            if strcmp(obj.CoordinateSystem,'physical') && isinf(obj.G)
+                value=zeros(size(f));
+            else
+                value=log(double(f<obj.G));
+            end
+        end
+        function value = EvlPDF(obj,varargin)
+            if ~isempty(varargin)
+                if strcmp(obj.CoordinateSystem,'physical')
+                    value=obj.TF.Rdis.EvlPDF(obj.X,varargin{1});
+                else
+                    value=-0.5*(log(2*pi)+obj.X.^2);
+                end
+            elseif ~isempty(obj.Y)
+                value=obj.Y(1,:);
+            elseif strcmp(obj.CoordinateSystem,'physical')
+                value=obj.TF.Rdis.EvlPDF(obj.X);
+            else
+                value=logGauss(obj.X);
+            end
+        end
+        function [y,g,obj,N_cal] = UpdObj(obj,~,y,p)
+            if nargin<4,p=obj.p;end
+            f=y(4,:);
+            if strcmp(obj.ThresholdRule,'midpoint')
+                l=sort(f,'ascend');n=round(numel(f)*p);g=(l(n)+l(n+1))/2;
+            else
+                g=quantile(f,p);
+            end
+            if obj.ClipThreshold,g=max(g,0);end
+            obj.G=g;N_cal=0;
+        end
+        function [x_seed,y_seed] = SltSed(obj,x,y,N)
+            idx=y(4,:)<obj.G;
+            n=sum(idx,'all');
+            if n<=0,x_seed=[];y_seed=[];return;end
+            ns=round(N./(1:N));nc=round(N./ns);
+            nc=nc(find(n-nc>=0,1,'last'));
+            if n>=nc,sel=randperm(n,nc);else,sel=randi(n,1,nc);end
+            xx=x(:,idx);yy=y(:,idx);x_seed=xx(:,sel);y_seed=yy(:,sel);
+            if ~isempty(y_seed)
+                obj.X=x_seed;obj.Y=y_seed(3:end,:);
+                y_seed=[obj.EvlLKF;obj.EvlPDF;obj.Y];
+            end
+        end
+        function x = SamGen(obj,N)
+            if strcmp(obj.CoordinateSystem,'physical')
+                x=obj.TF.Rdis.SamGen(N);
+            else
+                x=randn(obj.Ndim,N);
+            end
+        end
+        function value = get.FlgCvg(obj)
+            value=obj.G<=0;
         end
     end
 end

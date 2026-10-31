@@ -33,24 +33,28 @@ by constructing a sequence of intermediate importance sampling distributions (IS
 
 As an option, lower and upper bounds of the coefficient of variation (CoV) can be estimated from a single run. All probability weights are computed in the log domain for numerical stability.
 
+The common calling sequence is **distribution → sampler → SeMCS → estimator**. `SeMCS` owns the iteration loop; distribution classes define evaluations, intermediate thresholds and convergence; drivers select examples, seed repetitions and summarize results. `MIS` is a separate estimator, not a parent class.
+
+`SuS.m` and `SeMCS.m` are identical in both reliability toolboxes. The SuS drivers choose their numerical policy explicitly: GSS uses physical coordinates, midpoint thresholds and an unclipped terminal threshold; SeMIS uses standard-normal coordinates, Hazen quantiles and clipping at zero. The final failure event is always strictly `g < 0`.
+
 ## Requirements
 
 - MATLAB R2020b or later
 - Statistics and Machine Learning Toolbox (`fitrgp`, `plsregress`, `makedist`)
-- Parallel Computing Toolbox (optional; without it, `parfor` runs serially)
+- No Parallel Computing Toolbox is required for the supplied drivers.
 
 ## Repository structure
 
 ```
 .
 ├── drive_SeMIS.m            % main driver: selected example, 100 independent runs
-├── SeMIS.m                  % sequential sampling framework (Algorithm 1)
+├── SeMCS.m                  % shared sequential sampling framework (Algorithm 1)
 ├── SeMIS_low_dimension.m    % intermediate distributions, Kriging-based truncation (Eqn. 25)
 ├── SeMIS_high_dimension.m   % intermediate distributions, PLS-based truncation (Eqn. 26)
-├── MIS_Rel.m                % MIS estimator and optional single-run CoV bounds (Eqn. 34–58)
-├── SuS.m                    % subset simulation, used as a comparison baseline
+├── SuS.m                    % scalar intermediate distribution
+├── drive_SuS.m              % independent SuS repetitions
 ├── Limit-state-functions/   % built-in performance functions Ex1 ... Ex12
-├── Support-Fun/             % sampler (aCS), Nataf transformation, MIS weights, log-domain operations, ...
+├── Support-Fun/             % sampler (aCS), Nataf transformation, MIS estimator and weights, log-domain operations, ...
 ├── LICENSE
 └── README.md
 ```
@@ -60,14 +64,15 @@ As an option, lower and upper bounds of the coefficient of variation (CoV) can b
 Run the driver from the repository root (it adds the subfolders to the MATLAB path):
 
 ```matlab
->> drive_SeMIS
+results = drive_SeMIS(1, 1000, 100, 2026);
+comparison = drive_SuS(1, 1000, 100, 2026);
 ```
 
-By default this runs Example 1 (`Ex1`) with 100 independent runs and prints the estimated failure probability, its empirical CoV, and the average number of performance-function evaluations.
+By default this runs Example 1 (`Ex1`) with 100 independent runs and returns the estimated failure probability, empirical CoV and average model-call count. Use `drive_SeMIS(10, 1000, 100, 2026, 50)` for a 50-dimensional example.
 
 ## Built-in examples
 
-Select an example by editing the `Tfun = ...` line in `drive_SeMIS.m` and set `Pf_ref` accordingly. The examples are numbered as in Tables 1 and 4 of the paper.
+Select the example number through the first driver argument. The examples are numbered as in Tables 1 and 4 of the paper.
 
 | Example | Description | Dimension | `Pf_ref` |
 |---|---|---|---|
@@ -84,7 +89,7 @@ Select an example by editing the `Tfun = ...` line in `drive_SeMIS.m` and set `P
 | `Ex11(50)` | nonlinear performance function | 50 | 4.75e-6 |
 | `Ex12(50)` | linear, lognormal inputs | 50 | 1.91e-3 |
 
-For the high-dimensional examples (`Ex10`–`Ex12`), also switch the intermediate model in `drive_SeMIS.m` to `IntBay = SeMIS_high_dimension(Tfun);`.
+The driver selects `SeMIS_low_dimension` for n < 20 and `SeMIS_high_dimension` otherwise. The fifth argument sets the dimension of `Ex10`–`Ex12`.
 
 ## Using a custom performance function
 
@@ -92,25 +97,23 @@ For the high-dimensional examples (`Ex10`–`Ex12`), also switch the intermediat
 2. Define:
    - `Dist`: probabilistic model of the input vector `X` (see the built-in examples for Nataf-distributed marginals and correlations);
    - `Ndim`, `Nfun`: input dimension and number of performance functions;
-   - `g = EvlLSF(obj, u)`: evaluates the performance function on standard-normal samples `u`, where `g < 0` is the failure domain.
-3. In `drive_SeMIS.m`, set `Tfun = MyProblem;` (and `Pf_ref`, if known), then choose `IntBay = SeMIS_low_dimension(Tfun)` for n < 20 or `IntBay = SeMIS_high_dimension(Tfun)` for n ≥ 20.
+   - `g = EvlLSF(obj, x)`: evaluates the performance function on physical samples `x` (the model performs the Nataf transformation), where `g < 0` is the failure domain.
+3. Construct `model = SeMIS_low_dimension(MyProblem)` for n < 20 or `model = SeMIS_high_dimension(MyProblem)` otherwise. Set `sampler = aCS; sampler.BayStc = model; simulation = SeMCS(sampler);`, set `simulation.NumSam`, then run `out = simulation.RunIte; estimate = MIS(out);`.
 
 ## Outputs
 
-The driver prints the following quantities, averaged over the independent runs:
+All drivers return the same summary fields: `example`, `algorithm`, `N`, `repeats`, `seed`, `mean`, `standard_deviation`, `cov`, `mean_joint_calls`, `unfinished`, and `records`.
 
-| Output | Meaning |
-|---|---|
-| `P_hat_f` | estimated failure probability (Eqn. 9–10, 33) |
-| `P_hat_f/Pf_ref` | estimate normalized by the reference value (cf. Tables 2 and 5 of the paper) |
-| `CoV (empirical)` | coefficient of variation across the independent runs |
-| `N_cal (mean)` | average number of performance-function evaluations per run |
+Each record contains `seed`, `probability`, `joint_calls`, `layer_joint_calls`, `actual_level_samples`, and `completed`. `unfinished` is the number of repetitions that did not reach the failure domain. `cov` is the empirical sample standard deviation divided by the mean; it is distinct from optional single-run uncertainty bounds. With one repetition, sample standard deviation and empirical CoV are returned as `NaN`.
+
+The intermediate sampling output from `SeMCS.RunIte` retains `x`, `y`, `g`, `Nsam`, `Nsze`, `Ncal`, `Nite`, `flg_cvg`, and the final distribution object `intBay`. GSS also retains the active response history `h`.
 
 ## Optional single-run CoV bounds
 
-The paper (Eqn. 34–58, Appendices A–C) derives analytical bounds of the CoV from a single run, using a three-term decomposition (MCS noise, normalizing-constant noise and cross-term noise). This is disabled by default. To enable it, uncomment the three blocks marked `--- CoV estimation (optional) ---` in `drive_SeMIS.m` (allocation, inside the loop, and the print statement):
+The paper derives optional single-run CoV bounds. After obtaining a sampling output, use the separate estimator directly:
 
 ```matlab
+mis = MIS(out);
 [cv_lw, cv_up] = mis.estimateCov;   % single-run CoV bounds (Eqn. 34–58)
 ```
 
@@ -118,11 +121,11 @@ The paper (Eqn. 34–58, Appendices A–C) derives analytical bounds of the CoV 
 
 | Step | Code | Paper |
 |---|---|---|
-| Sequence of intermediate distributions | `SeMIS.RunIte` / `UpdObj` | Eqn. (11)–(21), (24)–(27) |
+| Sequence of intermediate distributions | `SeMCS.RunIte` / `UpdObj` | Eqn. (11)–(21), (24)–(27) |
 | pCN-MCMC sampling with adaptive step | `Support-Fun/aCS.m` | Eqn. (22)–(23), Algorithm 2 |
-| Normalizing constants of the ISDs | `MIS_Rel.normalizeY` | Eqn. (28)–(32) |
-| Balance-heuristic MIS estimator | `MIS_Rel` / `WgtMis_Blc` / `MisInt` | Eqn. (4)–(10), (33) |
-| CoV bounds (optional) | `MIS_Rel.estimateCov` | Eqn. (34)–(58), App. A–C |
+| Normalizing constants of the ISDs | `MIS.normalizeY` | Eqn. (28)–(32) |
+| Balance-heuristic MIS estimator | `MIS` / `WgtMis_Blc` / `MisInt` | Eqn. (4)–(10), (33) |
+| CoV bounds (optional) | `MIS.estimateCov` | Eqn. (34)–(58), App. A–C |
 
 ## Citation
 

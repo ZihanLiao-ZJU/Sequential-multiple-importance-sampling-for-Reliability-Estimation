@@ -38,7 +38,7 @@ classdef SeMCS
             n_predef=numel(obj.G);
             if n_predef>0, g(1:n_predef)=obj.G; end
             if ~isempty(obj.H), h(1:numel(obj.H))=obj.H; end
-            intBay.G = g{1};
+            if isstruct(g{1}), intBay.G = g{1}; else, intBay.G.parameters=g{1};g{1}=intBay.G;end
             if has_h, intBay.H = h{1}; end
             sampler.BayStc = intBay;
             flg_cvg=false;
@@ -51,7 +51,12 @@ classdef SeMCS
                 Nsam(ite)=prod(Nsze(ite,:));
                 dNcal=0;
                 if ite+1<=n_predef
-                    intBay.G=g{ite+1};
+                    previous_state=intBay.G;
+                    if isstruct(g{ite+1}),intBay.G=g{ite+1};else,intBay.G.parameters=g{ite+1};end
+                    for key={'lambda','HMC_time'}
+                        if isfield(previous_state,key{1}),intBay.G.(key{1})=previous_state.(key{1});end
+                    end
+                    g{ite+1}=intBay.G;
                     if has_h && ~isempty(h{ite+1}), intBay.H=h{ite+1}; end
                 else
                     [y{ite},g{ite+1},intBay,dNcal]=intBay.UpdObj(x{ite},y{ite},obj.ConPrb);

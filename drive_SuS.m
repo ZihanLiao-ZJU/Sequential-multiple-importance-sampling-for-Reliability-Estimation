@@ -1,9 +1,11 @@
-function results = drive_SuS(example, N, repeats, seed, ndim)
+function results = drive_SuS(example, N, repeats, seed, ndim, sampler_name)
 % DRIVE_SUS Run reliability examples through the shared SeMCS engine.
 % results = drive_SuS(example, N, repeats, seed, ndim)
 % Defaults: Ex1, 1000 samples, 100 runs, seed 2026; ndim=50 for Ex10-12.
 % Ex1-9 use their fixed physical dimensions.
 if nargin < 1, example = 1; end
+if nargin < 6 || isempty(sampler_name), sampler_name = 'aCS'; end
+assert(any(strcmp(sampler_name,{'CW_aMH','aCS','HMC','ES'})), 'Unknown sampler');
 if nargin < 2 || isempty(N), N = 1000; end
 if nargin < 3, repeats = 100; end
 if nargin < 4, seed = 2026; end
@@ -24,7 +26,7 @@ for run = 1:repeats
     rng(seed + run - 1, 'twister');
     if example >= 10, PF = constructor(ndim); else, PF = constructor(); end
     model = SuS(PF, 'standard_normal', 'hazen', true);
-    sampler = aCS;
+    sampler = feval(sampler_name);
     sampler.BayStc = model;
     simulation = SeMCS(sampler);
     simulation.NumSam = N;
@@ -32,7 +34,7 @@ for run = 1:repeats
     out = simulation.RunIte;
     probability = 1;
     for level = 1:out.Nite-1
-        probability = probability*mean(out.y{level}(4,:) < out.g{level+1}, 'all');
+        probability = probability*mean(out.y{level}(4,:) < out.g{level+1}.parameters, 'all');
     end
     probability = probability*mean(out.y{end}(4,:) < 0, 'all');
     records{run} = struct('seed', seed + run - 1, ...

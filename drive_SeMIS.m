@@ -1,9 +1,11 @@
-function results = drive_SeMIS(example, N, repeats, seed, ndim)
+function results = drive_SeMIS(example, N, repeats, seed, ndim, sampler_name)
 % DRIVE_SEMIS Run reliability examples through the shared SeMCS engine.
 % results = drive_SeMIS(example, N, repeats, seed, ndim)
 % Defaults: Ex1, 1000 samples, 100 runs, seed 2026; ndim=50 for Ex10-12.
 % Ex1-9 use their fixed physical dimensions.
 if nargin < 1, example = 1; end
+if nargin < 6 || isempty(sampler_name), sampler_name = 'aCS'; end
+assert(any(strcmp(sampler_name,{'CW_aMH','aCS','HMC','ES'})), 'Unknown sampler');
 if nargin < 2 || isempty(N), N = 1000; end
 if nargin < 3, repeats = 100; end
 if nargin < 4, seed = 2026; end
@@ -28,7 +30,7 @@ for run = 1:repeats
     else
         model = SeMIS_high_dimension(PF);
     end
-    sampler = aCS;
+    sampler = feval(sampler_name);
     sampler.BayStc = model;
     simulation = SeMCS(sampler);
     simulation.NumSam = N;

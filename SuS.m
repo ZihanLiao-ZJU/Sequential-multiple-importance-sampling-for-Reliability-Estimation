@@ -1,7 +1,8 @@
 classdef SuS
     % Scalar subset-simulation intermediate distribution (no iteration loop).
     % The two reliability toolboxes use this identical class.
-    % CoordinateSystem: 'standard_normal' (PF.Dist) or 'physical' (PF.Rdis).
+    % Adapter: 'standard_normal' uses PF.Dist; 'physical' uses PF.Rdis.
+    % Both sample/store Gaussian u; the adapter maps u to physical LSF inputs.
     % ThresholdRule: 'hazen' quantile or 'midpoint' at round(N*p).
     % ClipThreshold selects whether the final threshold is clamped at zero.
     properties
@@ -11,7 +12,7 @@ classdef SuS
         Ncal = 0;
         X
         Y
-        G = inf;
+        G = struct("parameters",inf,"p",0.1);
         H = nan;
         p = 0.1;
         Nsam = 1000;
@@ -24,7 +25,7 @@ classdef SuS
     end
     methods
         function obj = SuS(PF,coordinate_system,threshold_rule,clip_threshold)
-            obj.TF=PF;obj.Nfun=PF.Nfun+3;obj.Ndim=PF.Ndim;
+            obj.TF=PF;obj.Nfun=PF.Nfun+3;obj.Ndim=PF.Ndim;obj.G.L=eye(obj.Ndim);
             if nargin>=2,obj.CoordinateSystem=coordinate_system;end
             if nargin>=3,obj.ThresholdRule=threshold_rule;end
             if nargin>=4,obj.ClipThreshold=clip_threshold;end
@@ -34,8 +35,8 @@ classdef SuS
         function obj = EvlY(obj,u)
             obj.X=u;
             if strcmp(obj.CoordinateSystem,'physical')
-                f=obj.TF.EvlLSF(u);
-                log_phi=obj.TF.Rdis.EvlPDF(u);
+                f=obj.TF.EvlLSF(obj.TF.Rdis.U2X(u));
+                log_phi=-.5*(obj.Ndim*log(2*pi)+sum(u.^2,1));
             else
                 f=obj.TF.EvlLSF(obj.TF.Dist.U2X(u));
                 log_phi=logGauss(u);
@@ -44,25 +45,19 @@ classdef SuS
         end
         function value = EvlLKF(obj)
             f=obj.Y(2,:);
-            if strcmp(obj.CoordinateSystem,'physical') && isinf(obj.G)
+            if strcmp(obj.CoordinateSystem,'physical') && isinf(obj.G.parameters)
                 value=zeros(size(f));
             else
-                value=log(double(f<obj.G));
+                value=log(double(f<obj.G.parameters));
             end
         end
         function value = EvlPDF(obj,varargin)
             if ~isempty(varargin)
-                if strcmp(obj.CoordinateSystem,'physical')
-                    value=obj.TF.Rdis.EvlPDF(obj.X,varargin{1});
-                else
-                    value=-0.5*(log(2*pi)+obj.X.^2);
-                end
+                value=-.5*(log(2*pi)+obj.X(varargin{1},:).^2);
             elseif ~isempty(obj.Y)
                 value=obj.Y(1,:);
-            elseif strcmp(obj.CoordinateSystem,'physical')
-                value=obj.TF.Rdis.EvlPDF(obj.X);
             else
-                value=logGauss(obj.X);
+                value=-.5*(obj.Ndim*log(2*pi)+sum(obj.X.^2,1));
             end
         end
         function [y,g,obj,N_cal] = UpdObj(obj,~,y,p)
@@ -74,10 +69,10 @@ classdef SuS
                 g=quantile(f,p);
             end
             if obj.ClipThreshold,g=max(g,0);end
-            obj.G=g;N_cal=0;
+            obj.G.parameters=g;obj.G.p=p;g=obj.G;N_cal=0;
         end
         function [x_seed,y_seed] = SltSed(obj,x,y,N)
-            idx=y(4,:)<obj.G;
+            idx=y(4,:)<obj.G.parameters;
             n=sum(idx,'all');
             if n<=0,x_seed=[];y_seed=[];return;end
             ns=round(N./(1:N));nc=round(N./ns);
@@ -90,14 +85,10 @@ classdef SuS
             end
         end
         function x = SamGen(obj,N)
-            if strcmp(obj.CoordinateSystem,'physical')
-                x=obj.TF.Rdis.SamGen(N);
-            else
-                x=randn(obj.Ndim,N);
-            end
+            x=randn(obj.Ndim,N);
         end
         function value = get.FlgCvg(obj)
-            value=obj.G<=0;
+            value=obj.G.parameters<=0;
         end
     end
 end

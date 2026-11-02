@@ -1,10 +1,10 @@
 % Adapted from Zihan Liao's public MATLAB MCMC samplers; repository LICENSE applies.
-classdef CW_aMH < MCMCBase
+classdef CW_aMH < semcs.MCMCBase
     % Componentwise uniform random walk MH in whitened Gaussian coordinates.
     methods
         function obj=CW_aMH(b)
             if nargin<1, b=[]; end
-            obj@MCMCBase(b);
+            obj@semcs.MCMCBase(b);
         end
         function [u,y,Ncal,b]=SamGen(obj,varargin)
             [b,u0,y0,Ncal,save,L,Nc,Ns]=obj.prepare(varargin{:});

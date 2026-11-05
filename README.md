@@ -1,66 +1,147 @@
-# SeMIS reliability estimation — MATLAB
+# SeMIS: Sequential Multiple Importance Sampling for Reliability Estimation
+
+MATLAB implementation of **Sequential Multiple Importance Sampling (SeMIS)** for estimating small failure probabilities, including in high-dimensional problems. This code accompanies the paper:
+
+> **Sequential multiple importance sampling for robust and efficient (possibly high-dimensional) reliability estimation.**
+> *Mechanical Systems and Signal Processing*, 259 (2026) 114798. doi: [10.1016/j.ymssp.2026.114798](https://doi.org/10.1016/j.ymssp.2026.114798)
+
+## Contents
+
+- [Overview](#overview)
+- [Requirements](#requirements)
+- [Repository structure](#repository-structure)
+- [Quick start](#quick-start)
+- [Built-in examples](#built-in-examples)
+- [Using a custom performance function](#using-a-custom-performance-function)
+- [Outputs](#outputs)
+- [Optional single-run CoV bounds](#optional-single-run-cov-bounds)
+- [Code-to-paper mapping](#code-to-paper-mapping)
+- [Citation](#citation)
+- [License](#license)
 
 ## Overview
-Sequential multiple importance sampling (SeMIS) estimates small failure probabilities using adaptive intermediate distributions and a balance-heuristic MIS estimator. A separate SuS driver uses the classical product estimator. The default sampler is `aCS`; the four available kernels are a unified implementation and do not imply that every kernel/example combination was reported in the cited paper.
 
-## Structure
-- `drive_SeMIS.m` / `drive_SuS.m` — independent-run example drivers.
-- `./SeMCS.m` — iteration, distribution updates and seed selection.
-- `./SeMIS_low_dimension.m` / `SeMIS_high_dimension.m` — GP/PLS-based intermediate distributions and convergence; not iteration drivers.
-- `./SuS.m` — SuS intermediate distribution; `Support-Fun/MIS.m` — standalone MIS postprocessor.
-- `Limit-state-functions/` — bundled Ex1–Ex12 models.
-- `Support-Fun/` — `CW_aMH`, `aCS`, `HMC`, `ES`, shared sampler contract and numerical helpers.
+SeMIS estimates the failure probability
 
-Shared components are vendored inside this repository: no other toolbox checkout is required. Retain the included helper files and license when copying the toolbox.
+$$p_f = P\{g(\mathbf X) < 0\} = \int \phi_n(\mathbf u)\, I_{\mathcal F}(\mathbf u)\, \mathrm d\mathbf u$$
+
+by constructing a sequence of intermediate importance sampling distributions (ISDs) that move progressively toward the failure domain:
+
+1. The intermediate distributions are defined adaptively, using a Kriging-based truncation for low-dimensional problems or a PLS-based truncation for high-dimensional problems.
+2. Samples are drawn from each intermediate distribution with a preconditioned Crank–Nicolson (pCN) MCMC sampler with adaptive step size.
+3. All samples are combined with the balance-heuristic multiple importance sampling (MIS) estimator to obtain the failure probability.
+
+As an option, lower and upper bounds of the coefficient of variation (CoV) can be estimated from a single run. All probability weights are computed in the log domain for numerical stability.
+
+## Requirements
+
+- MATLAB R2020b or later
+- Statistics and Machine Learning Toolbox (`fitrgp`, `plsregress`, `makedist`)
+- Parallel Computing Toolbox (optional; without it, `parfor` runs serially)
+
+## Repository structure
+
+```
+.
+├── drive_SeMIS.m            % main driver: selected example, 100 independent runs
+├── SeMIS.m                  % sequential sampling framework (Algorithm 1)
+├── SeMIS_low_dimension.m    % intermediate distributions, Kriging-based truncation (Eqn. 25)
+├── SeMIS_high_dimension.m   % intermediate distributions, PLS-based truncation (Eqn. 26)
+├── MIS_Rel.m                % MIS estimator and optional single-run CoV bounds (Eqn. 34–58)
+├── SuS.m                    % subset simulation, used as a comparison baseline
+├── Limit-state-functions/   % built-in performance functions Ex1 ... Ex12
+├── Support-Fun/             % sampler (aCS), Nataf transformation, MIS weights, log-domain operations, ...
+├── LICENSE
+└── README.md
+```
 
 ## Quick start
-Run from this repository's root. The explicit small runs below are smoke examples, not the paper's full repetition protocol.
+
+Run the driver from the repository root (it adds the subfolders to the MATLAB path):
 
 ```matlab
-results = drive_SeMIS(10, 200, 2, 2026, 20);
-baseline = drive_SuS(10, 200, 2, 2026, 20);
+>> drive_SeMIS
 ```
 
-The driver returns or prints failure-probability estimates and actual model-call counts. Returned `records` include per-run `completed` flags, with an aggregate `unfinished` count. Inspect these flags before treating a run as completed; an estimate alone does not prove convergence.
+By default this runs Example 1 (`Ex1`) with 100 independent runs and prints the estimated failure probability, its empirical CoV, and the average number of performance-function evaluations.
 
-## Examples and samplers
-| Example | Model / dimension | Driver selector |
+## Built-in examples
+
+Select an example by editing the `Tfun = ...` line in `drive_SeMIS.m` and set `Pf_ref` accordingly. The examples are numbered as in Tables 1 and 4 of the paper.
+
+| Example | Description | Dimension | `Pf_ref` |
+|---|---|---|---|
+| `Ex1` | piecewise-linear | 2 | 3.20e-5 |
+| `Ex2` | changing topology | 2 | 1.13e-5 |
+| `Ex3` | linear-log | 2 | 3.23e-5 |
+| `Ex4` | polynomial benchmark | 3 | 3.13e-4 |
+| `Ex5` | parallel system | 5 | 2.13e-4 |
+| `Ex6` | Brotone Bridge tower | 5 | 2.370e-4 |
+| `Ex7` | noisy performance function | 6 | 5.29e-4 |
+| `Ex8` | RC beam | 7 | 3.20e-3 |
+| `Ex9` | 2-DOF oscillator | 8 | 3.78e-7 |
+| `Ex10(50)` | linear hyperplane | 50 | 1.35e-3 |
+| `Ex11(50)` | nonlinear performance function | 50 | 4.75e-6 |
+| `Ex12(50)` | linear, lognormal inputs | 50 | 1.91e-3 |
+
+For the high-dimensional examples (`Ex10`–`Ex12`), also switch the intermediate model in `drive_SeMIS.m` to `IntBay = SeMIS_high_dimension(Tfun);`.
+
+## Using a custom performance function
+
+1. Copy one of `Limit-state-functions/Ex*.m` (each is a MATLAB class with the same interface) and rename it, e.g. `MyProblem.m`.
+2. Define:
+   - `Dist`: probabilistic model of the input vector `X` (see the built-in examples for Nataf-distributed marginals and correlations);
+   - `Ndim`, `Nfun`: input dimension and number of performance functions;
+   - `g = EvlLSF(obj, u)`: evaluates the performance function on standard-normal samples `u`, where `g < 0` is the failure domain.
+3. In `drive_SeMIS.m`, set `Tfun = MyProblem;` (and `Pf_ref`, if known), then choose `IntBay = SeMIS_low_dimension(Tfun)` for n < 20 or `IntBay = SeMIS_high_dimension(Tfun)` for n ≥ 20.
+
+## Outputs
+
+The driver prints the following quantities, averaged over the independent runs:
+
+| Output | Meaning |
+|---|---|
+| `P_hat_f` | estimated failure probability (Eqn. 9–10, 33) |
+| `P_hat_f/Pf_ref` | estimate normalized by the reference value (cf. Tables 2 and 5 of the paper) |
+| `CoV (empirical)` | coefficient of variation across the independent runs |
+| `N_cal (mean)` | average number of performance-function evaluations per run |
+
+## Optional single-run CoV bounds
+
+The paper (Eqn. 34–58, Appendices A–C) derives analytical bounds of the CoV from a single run, using a three-term decomposition (MCS noise, normalizing-constant noise and cross-term noise). This is disabled by default. To enable it, uncomment the three blocks marked `--- CoV estimation (optional) ---` in `drive_SeMIS.m` (allocation, inside the loop, and the print statement):
+
+```matlab
+[cv_lw, cv_up] = mis.estimateCov;   % single-run CoV bounds (Eqn. 34–58)
+```
+
+## Code-to-paper mapping
+
+| Step | Code | Paper |
 |---|---|---|
-| Ex1 | Piecewise-linear / 2D | `1` |
-| Ex2 | Changing topology / 2D | `2` |
-| Ex3 | Linear-log / 2D | `3` |
-| Ex4 | Polynomial benchmark / 3D | `4` |
-| Ex5 | Parallel system / 5D | `5` |
-| Ex6 | Brotone Bridge tower / 5D | `6` |
-| Ex7 | Noisy performance function / 6D | `7` |
-| Ex8 | Reinforced-concrete beam / 7D | `8` |
-| Ex9 | Two-DOF damped oscillator / 8D | `9` |
-| Ex10 | Linear standard-normal model / configurable n | `10` |
-| Ex11 | Nonlinear standard-normal model / configurable n | `11` |
-| Ex12 | Linear lognormal model / configurable n | `12` |
+| Sequence of intermediate distributions | `SeMIS.RunIte` / `UpdObj` | Eqn. (11)–(21), (24)–(27) |
+| pCN-MCMC sampling with adaptive step | `Support-Fun/aCS.m` | Eqn. (22)–(23), Algorithm 2 |
+| Normalizing constants of the ISDs | `MIS_Rel.normalizeY` | Eqn. (28)–(32) |
+| Balance-heuristic MIS estimator | `MIS_Rel` / `WgtMis_Blc` / `MisInt` | Eqn. (4)–(10), (33) |
+| CoV bounds (optional) | `MIS_Rel.estimateCov` | Eqn. (34)–(58), App. A–C |
 
-- Available samplers: `CW_aMH`, `aCS`, `HMC`, `ES`; default `aCS`.
-- Restored defaults: Ex1, 1,000 samples per level, 100 independent repetitions, ambient RNG (no automatic reseeding), conditional probability 0.1, and dimension 2 unless explicitly supplied for Ex10–Ex12. An explicit seed enables deterministic per-run reseeding; otherwise the returned seed field is empty.
-- Ex1–Ex9 retain their fixed dimensions. The shared sampler contract uses the model-defined dimension rather than a hard-coded 2D state. Ex10–Ex12 accept the dimension argument; the driver selects GP below 20 dimensions and PLS otherwise. With dimension omitted they therefore use the 2D GP path, not a 50D PLS case. Pass `20`, `50`, `100`, or `1000` explicitly when selecting those high-dimensional paper conditions.
-- Select a kernel explicitly:
+## Citation
 
-```matlab
-results = drive_SeMIS(10, 200, 2, 2026, 20, 'ES');
+If you use this code in your research, please cite:
+
+> Xia, W., Liao, Z., & Li, B. (2026). Sequential multiple importance sampling for robust and efficient (possibly high-dimensional) reliability estimation. *Mechanical Systems and Signal Processing*, 259, 114798. https://doi.org/10.1016/j.ymssp.2026.114798
+
+```bibtex
+@article{xia2026sequential,
+  title   = {Sequential multiple importance sampling for robust and efficient (possibly high-dimensional) reliability estimation},
+  author  = {Xia, Weili and Liao, Zihan and Li, Binbin},
+  journal = {Mechanical Systems and Signal Processing},
+  volume  = {259},
+  pages   = {114798},
+  year    = {2026},
+  doi     = {10.1016/j.ymssp.2026.114798}
+}
 ```
 
-## Dependencies
-MATLAB R2020b or later with Statistics and Machine Learning Toolbox (`fitrgp`, `plsregress`, `makedist`). Supplied drivers are serial and do not require Parallel Computing Toolbox. Ambient serial RNG is not equivalent to the original `parfor` worker streams; native parallel execution has not been validated. Selected high-dimensional and SuS checks used GNU Octave with private compatibility helpers; the public toolbox targets MATLAB. These checks do not establish native MATLAB execution or native `fitrgp` equivalence.
+## License
 
-## Method & validation notes
-- **Implementation:** SeMIS preserves its existing GP/PLS screening and MIS estimator. SuS retains standard-normal coordinates, Hazen quantiles and thresholds clipped at zero. Failure is strictly `g < 0`. Different toolboxes may select different SuS policies explicitly; common code does not silently unify them.
-- **Sampler policy:** aCS starts with unit base sigma and carries its adapted `lambda` in `G` into the next level. Componentwise ES uses an initial angle in `[0, pi]`. HMC uses exact Gaussian-reference Hamiltonian proposals with a likelihood acceptance correction, not generic physical-space gradient HMC. Nataf maps evaluations to physical variables. These are current unified kernels, not a claim of untouched original-paper sampling code.
-- **Outputs:** Empirical SD uses independent repeats and sample normalization; CoV is SD divided by the mean. Model-call counts count actual evaluated sample points, not nominal sample totals or screened-out proposals. Optional single-run CoV bounds are a different quantity from empirical repeat-to-repeat CoV.
-- **Nataf compatibility:** The author implementation's positive-interval inversion is retained for nonstandard marginal pairs, including its limitations for negative correlations. Normal/lognormal direct transformations and the author's GEV CDF clipping are retained. This release does not silently extend that numerical method.
-- **Validation scope:** Focused current-to-cleanup source/trajectory and standalone checks are separate from original-paper statistical comparisons. Native MATLAB low-dimensional `fitrgp` execution was unavailable; no approximate Octave GP was substituted. Interface/trajectory/accounting checks do not establish exact reproduction of every published statistic.
-- **Historical scope:** Earlier framework cleanup separated SeMCS, distribution models and MIS. The user's later MATLAB source also changed optional single-run CoV bounds from stochastic normalizer perturbations to analytic bounds. The later author MATLAB implementation is the non-MCMC baseline, not the earliest stochastic-bound version. The recent imposed seed default is reverted; the dimension default is aligned to the author script's value 2. An unqualified claim that all changes since the earliest upload were MCMC-only would be incorrect.
-- **Limitations:** Ex8's public reference remains `3.20e-3`, whereas the inspected author-proof table reports `3.01e-3`; neither the model nor its reference was changed to force agreement. Ex10's public `3*sqrt(n)-sum(X)` is a positive scaling of the proof's `3-sum(X)/sqrt(n)`: the zero-threshold failure event agrees, not necessarily adaptive trajectories or costs. The author proof is not a verified final publisher version.
-
-## Reference & license
-Weili Xia, Zihan Liao, and Binbin Li. **Sequential multiple importance sampling for robust and efficient (possibly high-dimensional) reliability estimation.** *Mechanical Systems and Signal Processing*, 259 (2026), 114798. [doi:10.1016/j.ymssp.2026.114798](https://doi.org/10.1016/j.ymssp.2026.114798).
-
-Licensed under the [MIT License](LICENSE). The original copyright notice is retained in `LICENSE`.
+This project is licensed under the MIT License. See [LICENSE](./LICENSE) for details.

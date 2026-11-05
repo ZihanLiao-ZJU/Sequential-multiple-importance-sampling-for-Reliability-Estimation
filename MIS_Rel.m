@@ -1,4 +1,4 @@
-classdef MIS
+classdef MIS_Rel
     % MIS Multiple-importance-sampling reliability estimator (Pf + CoV bounds)
     %
     % Failure-probability estimator (Eqn. 9-10, 33) and single-run uncertainty
@@ -23,7 +23,7 @@ classdef MIS
     end
 
     methods
-        function obj = MIS(in)
+        function obj = MIS_Rel(in)
             obj.Nite   = in.Nite;
             obj.TF     = in.intBay.TF;
             obj.intBay = in.intBay;

@@ -41,11 +41,11 @@ for run = 1:repeats
     end
     sampler = feval(sampler_name);
     sampler.BayStc = model;
-    simulation = SeMCS(sampler);
+    simulation = SeMIS(model,sampler);
     simulation.NumSam = N;
     simulation.Verbose = false;
     out = simulation.RunIte;
-    mis = MIS(out);
+    mis = MIS_Rel(out);
     probability = mis.Pf_hat;
     records{run} = struct('seed', run_seed, ...
         'probability', probability, 'joint_calls', sum(out.Ncal), ...

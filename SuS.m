@@ -13,7 +13,6 @@ classdef SuS
         X
         Y
         G = struct("parameters",inf,"p",0.1);
-        H = nan;
         p = 0.1;
         Nsam = 1000;
         CoordinateSystem = 'standard_normal';
@@ -89,6 +88,44 @@ classdef SuS
         end
         function value = get.FlgCvg(obj)
             value=obj.G.parameters<=0;
+        end
+    end
+    methods
+        function defaults=run_defaults(obj)
+            defaults=struct('NumSam',1000,'ConPrb',0.1,'MaxIte',10000,'Verbose',true);
+            if isprop(obj,'Nsam'),defaults.NumSam=obj.Nsam;end
+            if isfield(obj.G,'p'),defaults.ConPrb=obj.G.p;end
+        end
+        function c=start_run(~,owner,sampler)
+            c=SeMCS.start_context(owner,sampler,owner.MaxIte-1,'replace');
+        end
+        function [c,r]=sample_level(~,c,level)
+            [c,r]=SeMCS.sample_context(c,level);
+        end
+        function c=advance_level(~,c,r,level)
+            if level+1<=numel(c.owner.G)
+                c.model.G=SeMCS.prescribed_state(c.model.G,c.owner.G{level+1},false,'replace');extra=0;
+            else
+                [c.y{level},~,c.model,extra]=c.model.UpdObj(r.x,r.y,c.owner.ConPrb);
+            end
+            c.Ncal(level)=c.Ncal(level)+extra;c.g{level+1,1}=c.model.G;
+            c.sampler.BayStc=c.model;
+        end
+        function c=select_run_seeds(~,c,r,level)
+            if c.targets(level+1)<=0,error('SeMCS:ScheduleExhausted','Sample budget exhausted before seed selection.');end
+            target=c.targets(level+1);[c.xs,c.ys]=c.model.SltSed(r.x,c.y{level},target);
+            c.nc=size(c.xs,2);c.steps=round(target/c.nc);
+            if c.owner.Verbose
+                fprintf('Level %d: N=%d, chains=%d, steps=%d, calls=%d\n',level,r.count,r.shape(1),r.shape(2),c.Ncal(level));
+            end
+        end
+        function [yes,c]=run_complete(~,c,~,phase)
+            yes=false;if ~strcmp(phase,'after_seeds'),return;end
+            if c.nc<=0 || numel(c.x)==c.limit,yes=true;return;end
+            c.complete=c.model.FlgCvg;yes=c.complete;
+        end
+        function out=finish_run(~,c)
+            out=SeMCS.pack_output(c);
         end
     end
 end

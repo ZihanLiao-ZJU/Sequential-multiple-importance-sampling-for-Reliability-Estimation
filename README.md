@@ -50,7 +50,9 @@ As an option, lower and upper bounds of the coefficient of variation (CoV) can b
 ├── Support-Fun/MIS.m        % MIS estimator and optional single-run CoV bounds (Eqn. 34–58)
 ├── SuS.m                    % subset simulation, used as a comparison baseline
 ├── Limit-state-functions/   % built-in performance functions Ex1 ... Ex12
-├── Support-Fun/             % sampler (aCS), Nataf transformation, MIS weights, log-domain operations, ...
+├── MCMC-samplers/           % aCS, CW_aMH, ES, HMC and the common MCMC interface
+├── Support-Fun/             % Nataf transformation, MIS weights and numerical utilities
+├── Operations on Logarithmic values/  % log-domain arithmetic
 ├── LICENSE
 └── README.md
 ```
@@ -119,7 +121,7 @@ The paper (Eqn. 34–58, Appendices A–C) derives analytical bounds of the CoV 
 | Step | Code | Paper |
 |---|---|---|
 | Sequence of intermediate distributions | `SeMCS.RunIte` / `UpdObj` | Eqn. (11)–(21), (24)–(27) |
-| pCN-MCMC sampling with adaptive step | `Support-Fun/aCS.m` | Eqn. (22)–(23), Algorithm 2 |
+| pCN-MCMC sampling with adaptive step | `MCMC-samplers/aCS.m` | Eqn. (22)–(23), Algorithm 2 |
 | Normalizing constants of the ISDs | `MIS.normalizeY` | Eqn. (28)–(32) |
 | Balance-heuristic MIS estimator | `MIS` / `WgtMis_Blc` / `MisInt` | Eqn. (4)–(10), (33) |
 | CoV bounds (optional) | `MIS.estimateCov` | Eqn. (34)–(58), App. A–C |

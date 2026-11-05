@@ -22,7 +22,8 @@ end
 root = fileparts(mfilename('fullpath'));
 addpath(fullfile(root, 'Limit-state-functions'));
 addpath(fullfile(root, 'Support-Fun'));
-addpath(fullfile(root, 'Support-Fun', 'Operations on Logarithmic values'));
+addpath(fullfile(root, 'MCMC-samplers'));
+addpath(fullfile(root, 'Operations on Logarithmic values'));
 records = cell(1, repeats);
 assert(example <= 12, 'Examples must be in 1:12.');
 algorithm = 'SeMIS';

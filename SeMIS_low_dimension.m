@@ -78,7 +78,7 @@ classdef SeMIS_low_dimension
             n_cal = 0;
 
             if any(ind_scr)
-                x       = U2X(obj,u(:,ind_scr));
+                x       = obj.TF.Dist.U2X(u(:,ind_scr));
                 g_val(ind_scr) = obj.TF.EvlLSF(x);
                 n_cal   = sum(ind_scr);
             end

@@ -44,10 +44,10 @@ As an option, lower and upper bounds of the coefficient of variation (CoV) can b
 ```
 .
 ├── drive_SeMIS.m            % main driver: selected example, 100 independent runs
-├── SeMIS.m                  % sequential sampling framework (Algorithm 1)
+├── SeMCS.m                  % common sequential sampling framework (Algorithm 1)
 ├── SeMIS_low_dimension.m    % intermediate distributions, Kriging-based truncation (Eqn. 25)
 ├── SeMIS_high_dimension.m   % intermediate distributions, PLS-based truncation (Eqn. 26)
-├── MIS_Rel.m                % MIS estimator and optional single-run CoV bounds (Eqn. 34–58)
+├── Support-Fun/MIS.m        % MIS estimator and optional single-run CoV bounds (Eqn. 34–58)
 ├── SuS.m                    % subset simulation, used as a comparison baseline
 ├── Limit-state-functions/   % built-in performance functions Ex1 ... Ex12
 ├── Support-Fun/             % sampler (aCS), Nataf transformation, MIS weights, log-domain operations, ...
@@ -118,11 +118,11 @@ The paper (Eqn. 34–58, Appendices A–C) derives analytical bounds of the CoV 
 
 | Step | Code | Paper |
 |---|---|---|
-| Sequence of intermediate distributions | `SeMIS.RunIte` / `UpdObj` | Eqn. (11)–(21), (24)–(27) |
+| Sequence of intermediate distributions | `SeMCS.RunIte` / `UpdObj` | Eqn. (11)–(21), (24)–(27) |
 | pCN-MCMC sampling with adaptive step | `Support-Fun/aCS.m` | Eqn. (22)–(23), Algorithm 2 |
-| Normalizing constants of the ISDs | `MIS_Rel.normalizeY` | Eqn. (28)–(32) |
-| Balance-heuristic MIS estimator | `MIS_Rel` / `WgtMis_Blc` / `MisInt` | Eqn. (4)–(10), (33) |
-| CoV bounds (optional) | `MIS_Rel.estimateCov` | Eqn. (34)–(58), App. A–C |
+| Normalizing constants of the ISDs | `MIS.normalizeY` | Eqn. (28)–(32) |
+| Balance-heuristic MIS estimator | `MIS` / `WgtMis_Blc` / `MisInt` | Eqn. (4)–(10), (33) |
+| CoV bounds (optional) | `MIS.estimateCov` | Eqn. (34)–(58), App. A–C |
 
 ## Citation
 

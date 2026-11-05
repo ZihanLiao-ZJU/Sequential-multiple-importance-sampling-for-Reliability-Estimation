@@ -107,10 +107,6 @@ classdef SuS
             context = SeMCS.start_context(owner, sampler, owner.MaxIte - 1, 'replace');
         end
 
-        function [context, record] = sample_level(~, context, level)
-            [context, record] = SeMCS.sample_context(context, level);
-        end
-
         function context = advance_level(~, context, record, level)
             if level + 1 <= numel(context.owner.G)
                 context.model.G = SeMCS.prescribed_state(context.model.G, context.owner.G{level+1}, false, 'replace');

@@ -65,6 +65,8 @@ Fixed MCMC settings, including initial step sizes, acceptance targets, adaptatio
 
 ## Quick start
 
+Set `MaxIte` to the maximum number of sampled levels. A scalar `NumSam` is reused; a vector is a finite per-level budget. The run returns when either limit is reached, and `flg_cvg` reports the method's own convergence criterion. Entries in `G` patch intermediate states; omitted fields and carried `lambda`/`HMC_time` are retained.
+
 Run the driver from the repository root (it adds the subfolders to the MATLAB path):
 
 ```matlab
@@ -104,6 +106,8 @@ For the high-dimensional examples (`Ex10`–`Ex12`), also switch the intermediat
 3. In `drive_SeMIS.m`, set `Tfun = MyProblem;` (and `Pf_ref`, if known), then choose `IntBay = SeMIS_low_dimension(Tfun)` for n < 20 or `IntBay = SeMIS_high_dimension(Tfun)` for n ≥ 20.
 
 ## Outputs
+
+The raw sampling history `g` contains `Nite` sampled states followed by one final candidate state. `Nsze` records the chain and step counts at each sampled level.
 
 The driver prints the following quantities, averaged over the independent runs:
 

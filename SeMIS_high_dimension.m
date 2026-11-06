@@ -4,10 +4,6 @@ classdef SeMIS_high_dimension
     % ISD (Eqn. 21): q_i(u) = phi_n(u; sigma^2 I) * L_i(u) / z_i
     %   rPDF pi_i(u) = phi_n(u; sigma^2 I)                (Eqn. 12)
     %   ISF  L_i(u)  = I[g(u)<l_i] * prod_m I[g_hat_m(u)<=l_hat_m]  (Eqn. 20)
-    properties (Constant)
-        RunOptions = struct('SeedFunction', 'SedSlt')
-    end
-
     properties
         TF
         Nfun

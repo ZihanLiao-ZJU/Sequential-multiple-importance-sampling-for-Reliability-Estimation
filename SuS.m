@@ -102,7 +102,7 @@ classdef SuS
             N_cal = 0;
         end
 
-        function [x_seed, y_seed] = SltSed(obj, x, y, N)
+        function [x_seed, y_seed] = SedSlt(obj, x, y, N)
             idx = y(4, :) < obj.G.parameters;
             n = sum(idx, 'all');
             if n <= 0

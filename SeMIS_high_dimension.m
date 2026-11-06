@@ -55,7 +55,7 @@ classdef SeMIS_high_dimension
 
         function obj = EvlY(obj,u)
             % Evaluate the function values associated with the input samples
-            u = u(1:end,:);
+            u = u(1:end,:);  % Flatten chain/step dimensions for the model.
             obj.X = u;
             n_sam = size(u,2);
 
@@ -112,9 +112,11 @@ classdef SeMIS_high_dimension
             %   pls_beta   : PLS hyperplane fitted on the seed samples only (Eqn. 26)
             %   l_hat      : conservative surrogate threshold = max over seeds (Eqn. 27)
             g_val = y(4,:);
-            u = u(1:end,:);
+            u = u(1:end,:);  % Flatten chain/step dimensions for the model.
             g = obj.G;
-            if nargin >= 4, g.p = p; end
+            if nargin >= 4
+                g.p = p;
+            end
             n_sam = size(u,2);
 
             l        = max(quantile(g_val, g.p), 0);   % threshold l_i (Eqn. 24)

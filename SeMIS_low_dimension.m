@@ -57,7 +57,7 @@ classdef SeMIS_low_dimension
 
         function obj = EvlY(obj,u)
             % Evaluate the function values associated with the input samples
-            u = u(1:end,:);
+            u = u(1:end,:);  % Flatten chain/step dimensions for the model.
             obj.X = u;
             n_sam = size(u,2);
 
@@ -128,9 +128,11 @@ classdef SeMIS_low_dimension
             %   g_hat_{i+1}: Kriging surrogate trained on evaluated samples (Eqn. 25)
             %   l_hat     : conservative surrogate threshold = max over seeds (Eqn. 27)
             g_val = y(4,:);
-            u = u(1:end,:);
+            u = u(1:end,:);  % Flatten chain/step dimensions for the model.
             g = obj.G;
-            if nargin >= 4, g.p = p; end
+            if nargin >= 4
+                g.p = p;
+            end
 
             l        = max(quantile(g_val,g.p),0);     % threshold l_i (Eqn. 24)
             ind_seed = g_val < l;                      % seed set S_{i+1} (Eqn. 24)

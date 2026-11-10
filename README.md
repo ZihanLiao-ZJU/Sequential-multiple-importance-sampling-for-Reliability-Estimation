@@ -35,7 +35,7 @@ As an option, lower and upper bounds of the coefficient of variation (CoV) can b
 
 ## Common sequential sampling interface
 
-All five MATLAB toolboxes include the same `SeMCS.m`: construct `simulation = SeMCS(sampler)`, set `NumSam`, `ConPrb`, `MaxIte`, and `Verbose`, then call `raw = simulation.RunIte()`. The model in `sampler.BayStc` supplies initialization, level updates, seed selection, and the order of its original stopping checks. The framework stores `x`, `y`, and the evolving distribution states `g`; the estimator processes this history separately.
+All five MATLAB toolboxes include the same `SeMCS.m`: choose a sampler, construct `simulation = SeMCS(sampler)`, set a constant `simulation.NumSam`, then call `raw = simulation.RunIte()`. The model in `sampler.BayStc` supplies initialization, level updates, seed selection, and the order of its original stopping checks. The framework stores `x`, `y`, and the evolving distribution states `g`; the estimator processes this history separately.
 
 Fixed MCMC settings, including initial step sizes, acceptance targets, adaptation-group counts and ES options, are properties of the sampler. Values that evolve, such as the adapted `lambda` and HMC trajectory time, are stored in the model's `G`. Different toolboxes retain their own numerical settings. `G.active` carries GSuS's evolving active-response mask together with each historical distribution state.
 
@@ -65,15 +65,15 @@ Fixed MCMC settings, including initial step sizes, acceptance targets, adaptatio
 
 ## Quick start
 
-Set `MaxIte` to the maximum number of sampled levels. A scalar `NumSam` is reused; a vector is a finite per-level budget. The run returns when either limit is reached, and `flg_cvg` reports the method's own convergence criterion. Entries in `G` patch intermediate states; omitted fields and carried `lambda`/`HMC_time` are retained.
-
-Run the driver from the repository root (it adds the subfolders to the MATLAB path):
+Run from the repository root; the driver adds the required subfolders. This runs Example 1 once with a constant sample count `N = 1000` per level and the `aCS` sampler:
 
 ```matlab
-drive_SeMIS
+results = drive_SeMIS(1, 1000, 1, [], 2, 'aCS');
 ```
 
-By default this runs Example 1 (`Ex1`) with 100 independent runs and prints the estimated failure probability, its empirical CoV, and the average number of performance-function evaluations.
+The first argument selects the example (`1`–`12`), the second is the constant `N`, and the third is the number of independent runs. The last argument selects `aCS`, `CW_aMH`, `ES` or `HMC`. The fifth argument, `ndim`, applies only to Examples 10–12; Examples 1–9 use their own fixed dimensions. The empty seed argument keeps the current random-number stream.
+
+Calling `drive_SeMIS` without arguments uses Example 1, `N = 1000`, `aCS` and 100 independent runs. Use multiple runs to estimate the empirical CoV.
 
 ## Built-in examples
 

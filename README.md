@@ -8,6 +8,7 @@ MATLAB implementation of **Sequential Multiple Importance Sampling (SeMIS)** for
 ## Contents
 
 - [Overview](#overview)
+- [Common sequential sampling interface](#common-sequential-sampling-interface)
 - [Requirements](#requirements)
 - [Repository structure](#repository-structure)
 - [Quick start](#quick-start)
@@ -47,7 +48,7 @@ Fixed MCMC settings, including initial step sizes, acceptance targets, adaptatio
 
 ## Repository structure
 
-```
+```text
 .
 ├── drive_SeMIS.m            % main driver: selected example, 100 independent runs
 ├── SeMCS.m                  % common sequential sampling framework (Algorithm 1)
@@ -70,7 +71,7 @@ Set `MaxIte` to the maximum number of sampled levels. A scalar `NumSam` is reuse
 Run the driver from the repository root (it adds the subfolders to the MATLAB path):
 
 ```matlab
->> drive_SeMIS
+drive_SeMIS
 ```
 
 By default this runs Example 1 (`Ex1`) with 100 independent runs and prints the estimated failure probability, its empirical CoV, and the average number of performance-function evaluations.
@@ -157,3 +158,4 @@ If you use this code in your research, please cite:
 ## License
 
 This project is licensed under the MIT License. See [LICENSE](./LICENSE) for details.
+

@@ -1,32 +1,25 @@
 %% Problem and sampling settings
-example = 1;
+PF = Ex1();
+% PF = Ex10(50);             % Examples 10–12 accept a dimension
 N = 1000;                       % Constant samples per level
 Nrun = 100;                   % Independent runs; set to 1 for a single run
 SamplerClass = @aCS;      % CW_aMH, aCS, HMC or ES
-ndim = 2;                    % Dimension for Examples 10-12
+
+%% Model and sampler
+if PF.Ndim < 20
+    model = SeMIS_low_dimension(PF);
+else
+    model = SeMIS_high_dimension(PF);
+end
+simulation = SeMCS(SamplerClass(model));
+simulation.NumSam = N;
 
 %% Run simulations
-root = fileparts(mfilename('fullpath'));
-addpath(fullfile(root, 'Limit-state-functions'));
-addpath(fullfile(root, 'Support-Fun'));
-addpath(fullfile(root, 'MCMC-samplers'));
-addpath(fullfile(root, 'Operations on Logarithmic values'));
 records = cell(1, Nrun);
-assert(example <= 12, 'Examples must be in 1:12.');
 algorithm = 'SeMIS';
-constructor = str2func(sprintf('Ex%d', example));
+problem_name = class(PF);
+example = sscanf(problem_name, 'Ex%d');   % Built-in benchmark number in results
 for run = 1:Nrun
-    if example >= 10, PF = constructor(ndim); else, PF = constructor(); end
-    if PF.Ndim < 20
-        model = SeMIS_low_dimension(PF);
-    else
-        model = SeMIS_high_dimension(PF);
-    end
-    sampler = SamplerClass();
-    sampler.BayStc = model;
-    simulation = SeMCS(sampler);
-    simulation.NumSam = N;
-    simulation.Verbose = false;
     out = simulation.RunIte;
     mis = MIS(out);
     probability = mis.Pf_hat;
@@ -46,5 +39,5 @@ results = struct('example', example, 'algorithm', algorithm, 'N', N, ...
     'cov', sd ./ mean(probabilities, 2), ...
     'mean_joint_calls', mean(calls), 'unfinished', sum(~completed), ...
     'records', {records});
-fprintf('%s example %d: %d runs, mean joint calls %.2f\n', ...
-    algorithm, example, Nrun, results.mean_joint_calls);
+fprintf('%s %s: %d runs, mean joint calls %.2f\n', ...
+    algorithm, problem_name, Nrun, results.mean_joint_calls);

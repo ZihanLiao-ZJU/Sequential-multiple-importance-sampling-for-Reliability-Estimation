@@ -58,9 +58,11 @@ As an option, lower and upper bounds of the coefficient of variation (CoV) can b
 
 ## Quick start
 
-Edit `example`, `ndim`, `N`, `Nrun` and `SamplerClass` inside `drive_SeMIS.m`. Select `SamplerClass = @aCS` (the default), or choose another supplied sampler: `CW_aMH`, `aCS`, `HMC` or `ES`.
+Add this repository and all its subfolders to the MATLAB path before running the script.
 
-The script defaults to Example 1, 1000 samples per level and 100 runs. `ndim` applies to Examples 10–12; the other examples have fixed dimensions. For a single run, set `Nrun = 1` inside the script.
+Edit `PF`, `N`, `Nrun` and `SamplerClass` inside `drive_SeMIS.m`. Select `SamplerClass = @aCS` (the default), or choose another supplied sampler: `CW_aMH`, `aCS`, `HMC` or `ES`.
+
+The script defaults to Example 1, 1000 samples per level and 100 runs. Pass the dimension to the constructor for Examples 10–12, for example `Ex10(50)`. For a single run, set `Nrun = 1` inside the script.
 
 Run the chosen script from the repository root:
 
@@ -72,7 +74,7 @@ Use multiple runs to estimate statistics across independent runs.
 
 ## Built-in examples
 
-Select an example by setting `example` in `drive_SeMIS.m` to a number from 1 to 12. The examples are numbered as in Tables 1 and 4 of the paper.
+Construct the selected performance function in the driver, for example `PF = Ex1()` or `PF = Ex10(50)`. The examples are numbered as in Tables 1 and 4 of the paper.
 
 | Example | Description | Dimension | `Pf_ref` |
 |---|---|---|---|
@@ -98,7 +100,7 @@ The script selects the intermediate model from the problem dimension: Kriging be
    - `Dist`: probabilistic model of the input vector `X` (see the built-in examples for Nataf-distributed marginals and correlations);
    - `Ndim`, `Nfun`: input dimension and number of performance functions;
    - `g = EvlLSF(obj, u)`: evaluates the performance function on standard-normal samples `u`, where `g < 0` is the failure domain.
-3. In `drive_SeMIS.m`, replace the `PF = constructor(...)` assignment inside the run loop with `PF = MyProblem;`. The script selects the intermediate model from `PF.Ndim`.
+3. Set `PF = MyProblem();` in the first section of `drive_SeMIS.m`. The script selects the intermediate model from `PF.Ndim`.
 
 ## Outputs
 

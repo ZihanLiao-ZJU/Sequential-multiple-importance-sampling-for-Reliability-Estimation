@@ -12,6 +12,7 @@ classdef SeMIS_low_dimension
         X
         Y
         Nsam = 1000;
+        Verbose = false;
     end
 
     properties
